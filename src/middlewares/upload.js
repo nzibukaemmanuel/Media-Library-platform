@@ -6,7 +6,7 @@ const multer = require('multer');
 
 const AppError = require('../utils/AppError');
 const { getUploadDir } = require('../utils/fileStorage');
-const { detectMediaType } = require('../services/mediaService');
+const { checkUpload } = require('../utils/fileTypes');
 
 // Maximum upload size, configurable with MAX_FILE_SIZE_MB (default 50)
 const getMaxFileSize = () => {
@@ -30,10 +30,13 @@ const storage = multer.diskStorage({
   },
 });
 
-// Reject unsupported types before anything is written to disk
+// Reject unsupported files before anything is written to disk: the MIME type
+// must be a supported kind of media AND the file extension must be allowed
+// for it (see utils/fileTypes.js).
 const fileFilter = (req, file, cb) => {
-  if (detectMediaType(file.mimetype)) return cb(null, true);
-  return cb(new AppError(`Unsupported file type: ${file.mimetype}`, 400));
+  const check = checkUpload(file);
+  if (check.ok) return cb(null, true);
+  return cb(new AppError(check.message, 400));
 };
 
 // Single-file upload from the form field "file"; other form fields

@@ -3,6 +3,7 @@ const path = require('node:path');
 const mediaRepository = require('../repositories/mediaRepository');
 const AppError = require('../utils/AppError');
 const { deleteFile } = require('../utils/fileStorage');
+const { checkUpload } = require('../utils/fileTypes');
 const {
   MEDIA_TYPES,
   MAX_TAGS,
@@ -11,28 +12,7 @@ const {
   MAX_BULK,
 } = require('../config/constants');
 
-// Non-"type/..." MIME types that count as documents
-const DOCUMENT_MIME_TYPES = new Set([
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-powerpoint',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'application/rtf',
-]);
-
 // ---------- helpers ----------
-
-// Work out the media_type from a MIME type, or null if it is not supported
-const detectMediaType = (mimeType = '') => {
-  const mime = mimeType.toLowerCase();
-  const prefix = mime.split('/')[0];
-  if (['image', 'video', 'audio'].includes(prefix)) return prefix;
-  if (prefix === 'text' || DOCUMENT_MIME_TYPES.has(mime)) return 'document';
-  return null;
-};
 
 // Accept "a, b" or ["a", "b"]; trim, lowercase, drop empties and duplicates
 const normalizeTags = (tags) => {
@@ -114,10 +94,11 @@ const createMedia = async (file, body = {}) => {
   if (!file) throw new AppError('A file is required', 400);
 
   try {
-    const mediaType = detectMediaType(file.mimetype);
-    if (!mediaType) {
-      throw new AppError(`Unsupported file type: ${file.mimetype}`, 400);
-    }
+    // The upload middleware already checks this; repeat it here so the
+    // service is safe no matter who calls it
+    const check = checkUpload(file);
+    if (!check.ok) throw new AppError(check.message, 400);
+    const mediaType = check.mediaType;
 
     const metadata = compact(parseMetadata(body));
     const fallbackTitle = path.parse(file.originalname).name;
@@ -327,7 +308,6 @@ const deleteTag = async (tag) => {
 };
 
 module.exports = {
-  detectMediaType,
   createMedia,
   listMedia,
   getMedia,

@@ -15,6 +15,18 @@ const SORTABLE_COLUMNS = [
   'original_name',
 ];
 
+// File extensions accepted for each kind of media. Uploads are checked against
+// this as well as the (client-supplied) MIME type. SVG, HTML and scripts are
+// deliberately absent: they can carry executable code if served back.
+const ALLOWED_EXTENSIONS = {
+  image: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif'],
+  video: ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v'],
+  audio: ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac'],
+  document: [
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.rtf', '.txt', '.csv', '.md',
+  ],
+};
+
 const SORT_ORDERS = ['asc', 'desc'];
 
 // Text and tag limits
@@ -33,6 +45,7 @@ const MAX_BULK = 100;
 module.exports = {
   MEDIA_TYPES,
   SORTABLE_COLUMNS,
+  ALLOWED_EXTENSIONS,
   SORT_ORDERS,
   MAX_TITLE_LENGTH,
   MAX_DESCRIPTION_LENGTH,
