@@ -11,6 +11,7 @@ const {
   MAX_TAG_LENGTH,
   MAX_TITLE_LENGTH,
   MAX_BULK,
+  MAX_FILES_PER_REQUEST,
 } = require('../config/constants');
 
 // ---------- helpers ----------
@@ -130,6 +131,48 @@ const createMedia = async (file, body = {}) => {
     });
   } catch (error) {
     await deleteFile(file.path);
+    throw error;
+  }
+};
+
+// Create several assets from several uploaded files in one request. The
+// category, description and tags given apply to every file; each file's title
+// is its own file name. All files are checked first, the records are saved
+// with a single statement (all or none), and if anything fails every stored
+// file of this request is removed.
+const createManyMedia = async (files, body = {}) => {
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new AppError('At least one file is required', 400);
+  }
+
+  try {
+    if (files.length > MAX_FILES_PER_REQUEST) {
+      throw new AppError(`Upload at most ${MAX_FILES_PER_REQUEST} files at once`, 400);
+    }
+    const { category, description, tags } = compact(parseMetadata(body));
+
+    const records = files.map((file) => {
+      const check = checkUpload(file);
+      if (!check.ok) throw new AppError(check.message, 400);
+      if (!file.size) throw new AppError(`The uploaded file "${file.originalname}" is empty`, 400);
+
+      return compact({
+        category,
+        description,
+        tags,
+        title: path.parse(file.originalname).name,
+        mediaType: check.mediaType,
+        fileName: file.filename,
+        originalName: file.originalname,
+        filePath: file.path,
+        mimeType: file.mimetype,
+        fileSize: file.size,
+      });
+    });
+
+    return await mediaRepository.createMany(records);
+  } catch (error) {
+    await Promise.all(files.map((file) => deleteFile(file.path)));
     throw error;
   }
 };
@@ -326,6 +369,7 @@ const deleteTag = async (tag) => {
 
 module.exports = {
   createMedia,
+  createManyMedia,
   listMedia,
   getMedia,
   updateMedia,

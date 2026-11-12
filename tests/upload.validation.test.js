@@ -37,23 +37,12 @@ describe('Upload validation edge cases', () => {
   };
 
   describe('file type and extension', () => {
+    // The brief allows exactly three types: image/jpeg, image/png and application/pdf
     const accepted = [
       ['photo.png', 'image/png', 'image'],
       ['photo.jpg', 'image/jpeg', 'image'],
       ['photo.jpeg', 'image/jpeg', 'image'],
-      ['anim.gif', 'image/gif', 'image'],
-      ['pic.webp', 'image/webp', 'image'],
-      ['clip.mp4', 'video/mp4', 'video'],
-      ['clip.webm', 'video/webm', 'video'],
-      ['clip.mov', 'video/quicktime', 'video'],
-      ['song.mp3', 'audio/mpeg', 'audio'],
-      ['song.wav', 'audio/wav', 'audio'],
-      ['song.flac', 'audio/flac', 'audio'],
       ['report.pdf', 'application/pdf', 'document'],
-      ['letter.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'document'],
-      ['sheet.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'document'],
-      ['notes.txt', 'text/plain', 'document'],
-      ['data.csv', 'text/csv', 'document'],
     ];
     for (const [name, type, expected] of accepted) {
       it(`accepts ${name} as ${expected}`, async () => {
@@ -76,15 +65,27 @@ describe('Upload validation edge cases', () => {
       await assertRejected(await t.upload({ name: 'photo.png.exe', type: 'image/png' }), /\.exe/);
     });
 
+    const unsupported = (type) => new RegExp(`Unsupported file type: ${type.replace(/[+/.]/g, String.raw`\$&`)}\\. Allowed types: image/jpeg, image/png, application/pdf`);
     const rejected = [
-      ['an executable pretending to be an image', 'virus.exe', 'image/png', /\.exe file is not allowed as image/],
-      ['an image whose type says video', 'movie.png', 'video/mp4', /\.png file is not allowed as video/],
-      ['an HTML page (would run scripts if served back)', 'page.html', 'text/html', /\.html file is not allowed/],
-      ['a JavaScript file sent as text', 'script.js', 'text/javascript', /\.js file is not allowed/],
-      ['an SVG (can carry scripts)', 'logo.svg', 'image/svg+xml', /\.svg file is not allowed/],
-      ['a zip archive', 'bundle.zip', 'application/zip', /Unsupported file type: application\/zip/],
-      ['an unknown binary type', 'data.bin', 'application/octet-stream', /Unsupported file type/],
-      ['a file with no extension', 'README', 'text/plain', /must have an extension/],
+      // the type itself is not allowed
+      ['a GIF', 'anim.gif', 'image/gif', unsupported('image/gif')],
+      ['a WebP image', 'pic.webp', 'image/webp', unsupported('image/webp')],
+      ['a video', 'clip.mp4', 'video/mp4', unsupported('video/mp4')],
+      ['an audio file', 'song.mp3', 'audio/mpeg', unsupported('audio/mpeg')],
+      ['a Word document', 'letter.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', /Unsupported file type: application\/vnd\.openxmlformats/],
+      ['a plain text file', 'notes.txt', 'text/plain', unsupported('text/plain')],
+      ['a CSV file', 'data.csv', 'text/csv', unsupported('text/csv')],
+      ['an HTML page (would run scripts if served back)', 'page.html', 'text/html', unsupported('text/html')],
+      ['a JavaScript file sent as text', 'script.js', 'text/javascript', unsupported('text/javascript')],
+      ['an SVG (can carry scripts)', 'logo.svg', 'image/svg+xml', unsupported('image/svg+xml')],
+      ['a zip archive', 'bundle.zip', 'application/zip', unsupported('application/zip')],
+      ['an unknown binary type', 'data.bin', 'application/octet-stream', unsupported('application/octet-stream')],
+      // the type is allowed, but the file name does not agree with it
+      ['an executable pretending to be an image', 'virus.exe', 'image/png', /\.exe file is not allowed for image\/png \(allowed: \.png\)/],
+      ['a PNG whose declared type is PDF', 'photo.png', 'application/pdf', /\.png file is not allowed for application\/pdf \(allowed: \.pdf\)/],
+      ['a JPEG whose declared type is PNG', 'photo.jpg', 'image/png', /\.jpg file is not allowed for image\/png/],
+      ['a PDF whose declared type is JPEG', 'doc.pdf', 'image/jpeg', /\.pdf file is not allowed for image\/jpeg \(allowed: \.jpg, \.jpeg\)/],
+      ['a file with no extension', 'README', 'image/png', /must have an extension/],
       ['a dotfile with no real extension', '.png', 'image/png', /must have an extension/],
       ['a name ending in a dot', 'photo.', 'image/png', /must have an extension/],
     ];
@@ -96,6 +97,29 @@ describe('Upload validation edge cases', () => {
   });
 
   describe('file size', () => {
+    it('allows 5 MB by default', async () => {
+      // MAX_FILE_SIZE_MB is set for this file so the other size tests stay fast;
+      // remove it to see the default
+      const configured = process.env.MAX_FILE_SIZE_MB;
+      delete process.env.MAX_FILE_SIZE_MB;
+      try {
+        const five = 5 * 1024 * 1024;
+        const ok = await t.upload({ content: 'x'.repeat(five) });
+        assert.equal(ok.status, 201, JSON.stringify(ok.body));
+        assert.equal(ok.body.data.fileSize, five);
+
+        await t.reset();
+        const tooBig = await t.upload({ content: 'x'.repeat(five + 1) });
+        await assertRejected(tooBig, /File is too large \(max 5 MB\)/);
+      } finally {
+        process.env.MAX_FILE_SIZE_MB = configured;
+      }
+    });
+
+    it('can be changed with MAX_FILE_SIZE_MB, and says what the limit is', async () => {
+      await assertRejected(await t.upload({ content: 'x'.repeat(LIMIT + 1) }), /File is too large \(max 0\.01 MB\)/);
+    });
+
     it('accepts a file exactly at the limit', async () => {
       const res = await t.upload({ content: 'x'.repeat(LIMIT) });
       assert.equal(res.status, 201, JSON.stringify(res.body));

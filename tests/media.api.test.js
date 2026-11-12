@@ -102,9 +102,15 @@ describe('Media API endpoints', () => {
     });
 
     it('detects the media type from the file', async () => {
-      assert.equal((await createMedia({ name: 'a.mp4', type: 'video/mp4' })).mediaType, 'video');
-      assert.equal((await createMedia({ name: 'a.mp3', type: 'audio/mpeg' })).mediaType, 'audio');
+      assert.equal((await createMedia({ name: 'a.jpg', type: 'image/jpeg' })).mediaType, 'image');
+      assert.equal((await createMedia({ name: 'a.png', type: 'image/png' })).mediaType, 'image');
       assert.equal((await createMedia({ name: 'a.pdf', type: 'application/pdf' })).mediaType, 'document');
+    });
+
+    it('accepts only JPEG, PNG and PDF files', async () => {
+      const res = await t.upload({ name: 'clip.mp4', type: 'video/mp4' });
+      assertError(res, 400, /Unsupported file type: video\/mp4. Allowed types: image\/jpeg, image\/png, application\/pdf/);
+      assert.deepEqual(t.filesOnDisk(), []);
     });
 
     it('rejects a request with no file', async () => {

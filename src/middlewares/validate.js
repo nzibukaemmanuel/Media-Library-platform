@@ -57,9 +57,9 @@ const toAppError = (failures) => {
 // can trust them. On failure the request stops with a 400 AppError that
 // lists every problem.
 //
-// If an upload middleware already stored a file (req.file) and validation
-// then fails, that file is deleted so rejected requests leave nothing
-// behind on disk.
+// If an upload middleware already stored files (req.file for one, req.files
+// for several) and validation then fails, those files are deleted so rejected
+// requests leave nothing behind on disk.
 const validate = (schemas = {}) => {
   const active = SOURCES.filter((source) => schemas[source]);
 
@@ -80,7 +80,8 @@ const validate = (schemas = {}) => {
     }
 
     if (failures.length > 0) {
-      if (req.file) await deleteFile(req.file.path);
+      const stored = [req.file, ...(Array.isArray(req.files) ? req.files : [])].filter(Boolean);
+      await Promise.all(stored.map((file) => deleteFile(file.path)));
       return next(toAppError(failures));
     }
 

@@ -284,16 +284,17 @@ describe('Pagination, filtering, sorting and search', () => {
     });
 
     it('filters by several media types, as a comma list or a repeated parameter', async () => {
-      const want = expected((r) => ['image', 'video'].includes(r.mediaType));
-      assert.deepEqual(ids(await ok('mediaType=image,video&limit=100')), want);
-      assert.deepEqual(ids(await ok('mediaType=image&mediaType=video&limit=100')), want);
-      assert.deepEqual(ids(await ok('mediaType=Image,%20VIDEO&limit=100')), want); // case and spaces
+      const want = expected((r) => ['image', 'document'].includes(r.mediaType));
+      assert.deepEqual(ids(await ok('mediaType=image,document&limit=100')), want);
+      assert.deepEqual(ids(await ok('mediaType=image&mediaType=document&limit=100')), want);
+      assert.deepEqual(ids(await ok('mediaType=Image,%20DOCUMENT&limit=100')), want); // case and spaces
     });
 
     it('rejects an unknown media type', async () => {
       await rejected('mediaType=gif', 'mediaType');
       await rejected('mediaType=image,gif', 'mediaType');
       await rejected('mediaType=image;video', 'mediaType');
+      await rejected('mediaType=video', 'mediaType'); // video is no longer an accepted kind of media
     });
 
     it('filters by exact MIME type, ignoring case', async () => {
@@ -523,8 +524,8 @@ describe('Pagination, filtering, sorting and search', () => {
     });
 
     it('combines search with filters, sorting and paging', async () => {
-      const matching = rows.filter((r) => /item/i.test(r.title) && r.mediaType === 'video').sort((a, b) => a.fileSize - b.fileSize);
-      const body = await ok('search=item&mediaType=video&sortBy=fileSize&sortOrder=asc&limit=2&page=2');
+      const matching = rows.filter((r) => /item/i.test(r.title) && r.mediaType === 'document').sort((a, b) => a.fileSize - b.fileSize);
+      const body = await ok('search=item&mediaType=document&sortBy=fileSize&sortOrder=asc&limit=2&page=2');
       assert.deepEqual(ids(body), matching.slice(2, 4).map((r) => r.id));
       assert.equal(body.meta.pagination.total, matching.length);
     });

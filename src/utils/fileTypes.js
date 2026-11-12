@@ -1,40 +1,30 @@
 const path = require('node:path');
 
-const { ALLOWED_EXTENSIONS } = require('../config/constants');
+const { ALLOWED_FILE_TYPES } = require('../config/constants');
 
-// MIME types that count as documents but do not start with "text/"
-const DOCUMENT_MIME_TYPES = new Set([
-  'application/pdf',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.ms-powerpoint',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'application/rtf',
-]);
+const ALLOWED_MIME_TYPES = Object.keys(ALLOWED_FILE_TYPES);
 
-// Work out the media_type from a MIME type, or null if it is not supported
-const detectMediaType = (mimeType = '') => {
-  const mime = mimeType.toLowerCase();
-  const prefix = mime.split('/')[0];
-  if (['image', 'video', 'audio'].includes(prefix)) return prefix;
-  if (prefix === 'text' || DOCUMENT_MIME_TYPES.has(mime)) return 'document';
-  return null;
-};
+// The kind of media a MIME type becomes ("image" or "document"), or null if
+// the type is not one of the allowed ones
+const detectMediaType = (mimeType = '') => ALLOWED_FILE_TYPES[mimeType.toLowerCase()]?.mediaType ?? null;
 
 // Decide whether an uploaded file is acceptable.
 //
-// The MIME type is sent by the client and can be faked, so it is not trusted
-// on its own: the file name's extension must also be on the allow-list for
-// the detected type. That rejects "virus.exe" sent as image/png, and files
-// such as .html or .js sent as text/*, which would be dangerous to serve back.
+// Only image/jpeg, image/png and application/pdf are accepted. The MIME type
+// is sent by the client and can be faked, so it is not trusted on its own:
+// the file name's extension must also be one of the extensions allowed for
+// that type. That rejects "virus.exe" sent as image/png and "photo.png" sent
+// as application/pdf.
 //
 // Returns { ok: true, mediaType } or { ok: false, message }.
 const checkUpload = ({ originalname = '', mimetype = '' } = {}) => {
-  const mediaType = detectMediaType(mimetype);
-  if (!mediaType) {
-    return { ok: false, message: `Unsupported file type: ${mimetype || 'unknown'}` };
+  const mime = mimetype.toLowerCase();
+  const allowed = ALLOWED_FILE_TYPES[mime];
+  if (!allowed) {
+    return {
+      ok: false,
+      message: `Unsupported file type: ${mimetype || 'unknown'}. Allowed types: ${ALLOWED_MIME_TYPES.join(', ')}`,
+    };
   }
 
   const extension = path.extname(originalname).toLowerCase();
@@ -42,17 +32,18 @@ const checkUpload = ({ originalname = '', mimetype = '' } = {}) => {
   if (!extension || extension === '.') {
     return { ok: false, message: 'The file must have an extension, e.g. photo.png' };
   }
-  if (!ALLOWED_EXTENSIONS[mediaType].includes(extension)) {
+  if (!allowed.extensions.includes(extension)) {
     return {
       ok: false,
-      message: `A ${extension} file is not allowed as ${mediaType} media (allowed: ${ALLOWED_EXTENSIONS[mediaType].join(', ')})`,
+      message: `A ${extension} file is not allowed for ${mime} (allowed: ${allowed.extensions.join(', ')})`,
     };
   }
 
-  return { ok: true, mediaType };
+  return { ok: true, mediaType: allowed.mediaType };
 };
 
 module.exports = {
+  ALLOWED_MIME_TYPES,
   detectMediaType,
   checkUpload,
 };

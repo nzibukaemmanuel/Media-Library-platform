@@ -103,6 +103,16 @@ const createMediaBody = Joi.object({
   title: metadataFields.title.required(),
 });
 
+// POST /media/multiple: the files themselves are validated by the upload
+// middleware. Category, description and tags apply to every file; each file's
+// title is its own file name, and per-file details (title, width, height,
+// duration) are not accepted here.
+const createMultipleBody = Joi.object({
+  description: metadataFields.description,
+  category,
+  tags: metadataFields.tags,
+});
+
 // PATCH /media/:id: at least one field must be provided
 const updateMediaBody = Joi.object(metadataFields)
   .min(1)
@@ -222,6 +232,7 @@ const listMediaQuery = Joi.object(
 
 module.exports = {
   createMediaBody,
+  createMultipleBody,
   updateMediaBody,
   idParams,
   bulkUpdateBody,

@@ -1,8 +1,9 @@
 // Limits and allowed values shared by the validation schemas, the service
 // and the repository, so a rule is defined in exactly one place.
 
-// Kinds of media (must match the media_type enum in database/schema.sql)
-const MEDIA_TYPES = ['image', 'video', 'audio', 'document'];
+// Kinds of media an upload can be classified as. The media_type enum in
+// database/schema.sql also lists video and audio, which are not accepted now.
+const MEDIA_TYPES = ['image', 'document'];
 
 // Categories a media item can belong to (must match the media_category enum
 // in database/schema.sql). A new item is "general" unless it says otherwise.
@@ -22,17 +23,21 @@ const SORT_FIELDS = [
   'category',
 ];
 
-// File extensions accepted for each kind of media. Uploads are checked against
-// this as well as the (client-supplied) MIME type. SVG, HTML and scripts are
-// deliberately absent: they can carry executable code if served back.
-const ALLOWED_EXTENSIONS = {
-  image: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.avif'],
-  video: ['.mp4', '.webm', '.mov', '.mkv', '.avi', '.m4v'],
-  audio: ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac'],
-  document: [
-    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.rtf', '.txt', '.csv', '.md',
-  ],
+// The only file types an upload may have. Each MIME type lists the kind of
+// media it becomes and the file extensions allowed for it. The MIME type is
+// sent by the client and can be faked, so the extension must agree with it.
+// SVG, HTML and scripts are deliberately absent: they can carry executable
+// code if served back to a browser.
+const ALLOWED_FILE_TYPES = {
+  'image/jpeg': { mediaType: 'image', extensions: ['.jpg', '.jpeg'] },
+  'image/png': { mediaType: 'image', extensions: ['.png'] },
+  'application/pdf': { mediaType: 'document', extensions: ['.pdf'] },
 };
+
+// Upload limits: the size of one file (MAX_FILE_SIZE_MB in .env overrides the
+// default) and how many files one multiple-upload request may carry
+const DEFAULT_MAX_FILE_SIZE_MB = 5;
+const MAX_FILES_PER_REQUEST = 10;
 
 const SORT_ORDERS = ['asc', 'desc'];
 
@@ -54,7 +59,9 @@ module.exports = {
   CATEGORIES,
   DEFAULT_CATEGORY,
   SORT_FIELDS,
-  ALLOWED_EXTENSIONS,
+  ALLOWED_FILE_TYPES,
+  DEFAULT_MAX_FILE_SIZE_MB,
+  MAX_FILES_PER_REQUEST,
   SORT_ORDERS,
   MAX_TITLE_LENGTH,
   MAX_DESCRIPTION_LENGTH,

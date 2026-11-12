@@ -1,7 +1,7 @@
 const express = require('express');
 
 const mediaController = require('../controllers/mediaController');
-const { uploadSingle } = require('../middlewares/upload');
+const { uploadSingle, uploadMultiple } = require('../middlewares/upload');
 const validate = require('../middlewares/validate');
 const schemas = require('../validations/mediaValidation');
 
@@ -36,6 +36,14 @@ router.post(
   '/bulk-delete',
   validate({ body: schemas.bulkDeleteBody }),
   mediaController.bulkDeleteMedia
+);
+
+// ----- Upload several files at once (field "files", up to 10) -----
+router.post(
+  '/multiple',
+  uploadMultiple,
+  validate({ body: schemas.createMultipleBody }),
+  mediaController.createMultipleMedia
 );
 
 // ----- Collection -----

@@ -13,6 +13,12 @@ const createMedia = catchAsync(async (req, res) => {
   sendSuccess(res, { statusCode: 201, data: media });
 });
 
+// POST /media/multiple  (multipart; the files are attached to req.files)
+const createMultipleMedia = catchAsync(async (req, res) => {
+  const results = await mediaService.createManyMedia(req.files, req.body);
+  sendSuccess(res, { statusCode: 201, data: { results } });
+});
+
 // GET /media?search=&category=&tags=&sortBy=&order=&page=&limit= ...
 const listMedia = catchAsync(async (req, res) => {
   const { items, pagination } = await mediaService.listMedia(req.query);
@@ -100,6 +106,7 @@ const deleteTag = catchAsync(async (req, res) => {
 
 module.exports = {
   createMedia,
+  createMultipleMedia,
   listMedia,
   getMedia,
   updateMedia,

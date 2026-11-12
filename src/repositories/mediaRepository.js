@@ -23,6 +23,38 @@ const create = async (data) => {
   return Media.fromRow(rows[0]);
 };
 
+// Create several media assets with ONE statement, so either all of them are
+// saved or none is. Every item must set the same fields (the service builds
+// them uniformly). Returns the created assets in the order given.
+const createMany = async (items) => {
+  if (items.length === 0) return [];
+  const written = items.map(Media.toColumns);
+  const columns = Object.keys(written[0]);
+  for (const row of written) {
+    if (Object.keys(row).length !== columns.length || !columns.every((c) => c in row)) {
+      throw new Error('createMany needs every item to set the same fields');
+    }
+  }
+
+  const values = [];
+  const groups = written.map((row) => {
+    const placeholders = columns.map((c) => {
+      values.push(row[c]);
+      return `$${values.length}`;
+    });
+    return `(${placeholders.join(', ')})`;
+  });
+
+  const { rows } = await pool.query(
+    `INSERT INTO media_assets (${columns.join(', ')})
+     VALUES ${groups.join(', ')}
+     RETURNING *`,
+    values
+  );
+  // RETURNING does not promise an order, ids are assigned in insertion order
+  return rows.sort((a, b) => a.id - b.id).map(Media.fromRow);
+};
+
 // Parse a positive integer, falling back to a default for missing/invalid input
 const toPositiveInt = (value, fallback) => {
   const n = Number.parseInt(value, 10);
@@ -258,6 +290,7 @@ const deleteTag = async (tag) => {
 
 module.exports = {
   create,
+  createMany,
   findAll,
   getTags,
   findById,
