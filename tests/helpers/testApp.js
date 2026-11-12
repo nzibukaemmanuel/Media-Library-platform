@@ -16,7 +16,7 @@ const path = require('node:path');
 const { Client } = require('pg');
 
 const TEST_DB = process.env.TEST_DB_NAME || 'media_library_test';
-if (!/_test$/.test(TEST_DB)) {
+if (!TEST_DB.endsWith('_test')) {
   throw new Error(`Refusing to run tests against "${TEST_DB}": the test database name must end in "_test"`);
 }
 
@@ -81,6 +81,15 @@ const startTestApp = async () => {
     return { status: res.status, body: await res.json() };
   };
 
+  // Send a hand-built multipart form (for edge cases: several files, a wrong
+  // field name, repeated fields...). `build` receives an empty FormData.
+  const uploadForm = async (build) => {
+    const form = new FormData();
+    build(form);
+    const res = await fetch(`${base}/api/media`, { method: 'POST', body: form });
+    return { status: res.status, body: await res.json() };
+  };
+
   // Empty the table and the upload folder so every test starts clean
   const reset = async () => {
     await pool.query('TRUNCATE media_assets RESTART IDENTITY');
@@ -102,9 +111,11 @@ const startTestApp = async () => {
     uploadDir,
     request,
     upload,
+    uploadForm,
     reset,
     stop,
     filesOnDisk: () => fs.readdirSync(uploadDir),
+    rowCount: async () => (await pool.query('SELECT count(*)::int AS n FROM media_assets')).rows[0].n,
   };
 };
 
