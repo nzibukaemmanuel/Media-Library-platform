@@ -21,6 +21,7 @@ const DOCUMENT_MIME_TYPES = new Set([
 const MAX_TAGS = 20;
 const MAX_TAG_LENGTH = 50;
 const MAX_TITLE_LENGTH = 255;
+const MAX_BULK = 100;
 
 // ---------- helpers ----------
 
@@ -233,6 +234,80 @@ const deleteMedia = async (id) => {
 
 const listTags = () => mediaRepository.getTags();
 
+// ---------- metadata management ----------
+
+// Parse a non-empty list of tags from input that must contain at least one
+const requireTags = (tags) => {
+  const list = normalizeTags(tags);
+  if (list.length === 0) throw new AppError('Provide at least one tag', 400);
+  return list;
+};
+
+// Add tags to one asset, keeping existing ones (no duplicates).
+const addTags = async (id, tags) => {
+  const toAdd = requireTags(tags);
+  const media = await getMedia(id);
+  const merged = [...new Set([...media.tags, ...toAdd])];
+  if (merged.length > MAX_TAGS) {
+    throw new AppError(`A media asset can have at most ${MAX_TAGS} tags`, 400);
+  }
+  return updateMedia(media.id, { tags: merged });
+};
+
+// Remove tags from one asset; tags it does not have are ignored.
+const removeTags = async (id, tags) => {
+  const toRemove = new Set(requireTags(tags));
+  const media = await getMedia(id);
+  const remaining = media.tags.filter((t) => !toRemove.has(t));
+  return updateMedia(media.id, { tags: remaining });
+};
+
+// Apply the same title/description/tags/dimensions change to many assets.
+// ids must all be positive integers; assets that do not exist are reported
+// in `notFound` instead of failing the whole batch.
+const bulkUpdateMedia = async (ids, body = {}) => {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new AppError('Provide a non-empty array of media ids', 400);
+  }
+  if (ids.length > MAX_BULK) {
+    throw new AppError(`You can update at most ${MAX_BULK} assets at once`, 400);
+  }
+  const mediaIds = [...new Set(ids.map(parseId))];
+
+  const changes = compact(parseMetadata(body));
+  if ('title' in changes && !changes.title) {
+    throw new AppError('title cannot be empty', 400);
+  }
+  if (Object.keys(changes).length === 0) {
+    throw new AppError('Provide at least one field to update', 400);
+  }
+
+  const updated = await mediaRepository.updateMany(mediaIds, changes);
+  const found = new Set(updated.map((m) => m.id));
+  return {
+    updated,
+    notFound: mediaIds.filter((id) => !found.has(id)),
+  };
+};
+
+// Rename a tag across the whole library. Returns how many assets changed.
+const renameTag = async (oldTag, newTag) => {
+  const [from] = requireTags(oldTag);
+  const [to] = requireTags(newTag);
+  if (from === to) throw new AppError('The new tag name must be different', 400);
+  const changed = await mediaRepository.renameTag(from, to);
+  if (changed === 0) throw new AppError(`Tag "${from}" not found`, 404);
+  return { tag: to, previousTag: from, changed };
+};
+
+// Remove a tag from every asset that uses it. Returns how many changed.
+const deleteTag = async (tag) => {
+  const [name] = requireTags(tag);
+  const changed = await mediaRepository.deleteTag(name);
+  if (changed === 0) throw new AppError(`Tag "${name}" not found`, 404);
+  return { tag: name, changed };
+};
+
 module.exports = {
   createMedia,
   listMedia,
@@ -240,4 +315,9 @@ module.exports = {
   updateMedia,
   deleteMedia,
   listTags,
+  addTags,
+  removeTags,
+  bulkUpdateMedia,
+  renameTag,
+  deleteTag,
 };
