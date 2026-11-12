@@ -24,9 +24,11 @@
     "express": "^5.3.0",
     "joi": "^18.3.2",
     "multer": "^2.5.0",
-    "pg": "^8.23.1"
+    "pg": "^8.23.1",
+    "swagger-ui-express": "^5.0.1"
   },
   "devDependencies": {
+    "@apidevtools/swagger-parser": "^13.1.0",
     "nodemon": "^3.1.14"
   }
 }

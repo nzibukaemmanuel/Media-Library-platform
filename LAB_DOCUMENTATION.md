@@ -2,7 +2,7 @@
 
 A report on the **Media Library API** lab: what the brief required, how each requirement was implemented, where to find it in the code, and how it was verified.
 
-> **How this relates to the other documents.** [`README.md`](README.md) is the *user guide* (how to run the API and use every endpoint). This document is the *lab report*: it follows the structure of the lab brief, maps every requirement to code and tests, explains the design decisions, and records the problems found along the way. [`docs/postman/`](docs/postman/Media-Library-API.postman_collection.json) holds the Postman / Insomnia collection the brief asks for.
+> **How this relates to the other documents.** [`README.md`](README.md) is the *user guide* (how to run the API and use every endpoint). This document is the *lab report*: it follows the structure of the lab brief, maps every requirement to code and tests, explains the design decisions, and records the problems found along the way. [`docs/postman/`](docs/postman/Media-Library-API.postman_collection.json) holds the Postman / Insomnia collection the brief asks for, and the running API serves interactive Swagger UI documentation at `/api-docs`.
 
 ## Contents
 
@@ -34,8 +34,8 @@ A report on the **Media Library API** lab: what the brief required, how each req
 |---|---|
 | Endpoints | 14 media routes (upload one or several, list/search, get, update with `PUT` and `PATCH`, delete, tag management, bulk update/delete) plus a health check |
 | Source code | A layered Express application: routes → controllers → services → repositories → PostgreSQL |
-| Automated tests | **302 tests** in 7 files, all passing |
-| API collection | A Postman / Insomnia collection with 23 requests, including the brief's edge cases |
+| Automated tests | **321 tests** in 8 files, all passing |
+| API documentation | Interactive **Swagger UI** at `/api-docs` (OpenAPI 3 document at `/api-docs.json`), and a Postman / Insomnia collection with 23 requests, including the brief's edge cases |
 | Commits | see the [appendix](#15-appendix-commit-history); each is one logical change |
 
 **Skills exercised (the brief's learning objectives):** layered architecture; centralised error handling; request validation with Joi; single and multiple file uploads with Multer; pagination, filtering and search; async/await and promise-rejection handling.
@@ -140,6 +140,7 @@ Every requirement in the brief, where it lives, and the test that proves it. All
 | Configure the Express app, create the Media model, repository, service, controllers with `catchAsync`, routes and validation middleware, Multer restrictions, global error handling, process-level handlers | ✅ |
 | `uploads/` folder, `.env`, `server.js` | ✅ (`uploads/` and `.env` are git-ignored) |
 | Test all endpoints with Postman / Insomnia | ✅ collection in `docs/postman/`; its 17 JSON requests were replayed against the running API |
+| Document the API | ✅ Swagger UI at `/api-docs` and the README; `swagger.test.js` keeps the OpenAPI document in step with the code |
 | Test edge cases: invalid file type, oversized file, missing fields, invalid query parameters | ✅ see [section 7](#7-edge-cases-from-the-brief) |
 
 ## 3. Architecture
@@ -187,10 +188,11 @@ src/
 ├── validations/           mediaValidation.js (Joi schemas)
 ├── middlewares/           upload.js · validate.js · errorHandler.js
 ├── config/                db.js (connection pool) · constants.js (shared limits)
+├── docs/                  openapi.js (the OpenAPI document behind Swagger UI)
 ├── database/              schema.sql · initDb.js
 └── utils/                 AppError · catchAsync · apiResponse · fileStorage ·
                            fileTypes · errorMessage · processHandlers
-tests/                     7 test files + helpers/testApp.js
+tests/                     8 test files + helpers/testApp.js
 docs/postman/              Postman / Insomnia collection
 ```
 
@@ -344,7 +346,7 @@ The brief lists four edge cases to test. Each is covered by automated tests and 
 - **Real app, real database.** The tests start the actual Express app on a random port and call it over HTTP against PostgreSQL. Nothing important is mocked, so they exercise routing, validation, Multer, the service, SQL and error handling together.
 - **A separate test database.** `media_library_test` (configurable with `TEST_DB_NAME`) is created automatically and emptied between tests. The helper **refuses to run unless the name ends in `_test`**, so the tests can never touch real data. Uploads go to a temporary folder.
 - **Failures are simulated** by temporarily replacing `pool.query` with a function that throws (an outage, a constraint violation, a bug), because they cannot be triggered on demand.
-- **Structure is tested too.** `architecture.test.js` reads the source and enforces the brief's structural rules (see section 2).
+- **Structure is tested too.** `architecture.test.js` reads the source and enforces the brief's structural rules (see section 2). `swagger.test.js` does the same for the documentation: it fails if a route, a query parameter or a field is added to the code but not to the OpenAPI document (or the reverse).
 - **No new dependencies:** Node's built-in `node:test`. `npm test` runs files one at a time because they share the database.
 
 ### Coverage
@@ -358,7 +360,8 @@ The brief lists four edge cases to test. Each is covered by automated tests and 
 | `tests/media.query.test.js` | 81 | Pagination, sorting (including ties), every filter, search |
 | `tests/errors.test.js` | 53 | Error handling, response formats, simulated database failures, development vs production |
 | `tests/database.init.test.js` | 6 | `npm run db:init`: applies, re-runs, keeps data, category column, error reporting |
-| **Total** | **302** | all passing |
+| `tests/swagger.test.js` | 19 | Swagger UI and the OpenAPI document: served, valid, and in step with the real routes, parameters, fields and responses |
+| **Total** | **321** | all passing |
 
 ### Process-level handlers
 
@@ -404,7 +407,7 @@ The Postman collection was also checked: its 17 requests that need no file were 
 | Soft delete | not done: delete is permanent |
 | Audit logging | not done: only server failures are logged |
 
-Beyond the brief the API also offers tag management (add, remove, rename, delete, counts), bulk update and delete, extra filters (size, date range, MIME type), and an alias path under `/api/media`.
+Beyond the brief the API also offers tag management (add, remove, rename, delete, counts), bulk update and delete, extra filters (size, date range, MIME type), an alias path under `/api/media`, and interactive Swagger UI documentation at `/api-docs`.
 
 ## 11. Decisions and interpretations
 
@@ -474,7 +477,7 @@ npm install
 cp .env.example .env      # then fill in your PostgreSQL details
 npm run db:init           # create / upgrade the table (safe to repeat)
 npm run dev               # start the API
-npm test                  # run the 302 tests (creates its own test database)
+npm test                  # run the 321 tests (creates its own test database)
 ```
 
 **A two-minute demonstration** (with the server running):
@@ -492,7 +495,7 @@ curl "http://localhost:3000/media?search=photo&category=design&tags=demo&sortBy=
 curl -X POST http://localhost:3000/media -F "file=@clip.mp4;type=video/mp4" -F "title=A clip"
 ```
 
-Or import [`docs/postman/Media-Library-API.postman_collection.json`](docs/postman/Media-Library-API.postman_collection.json) into Postman or Insomnia and run **Upload a file**, then the other folders.
+Or open **http://localhost:3000/api-docs** (Swagger UI) and use **Try it out**, or import [`docs/postman/Media-Library-API.postman_collection.json`](docs/postman/Media-Library-API.postman_collection.json) into Postman or Insomnia and run **Upload a file**, then the other folders.
 
 ## 15. Appendix: commit history
 
@@ -551,4 +554,5 @@ Every change is a single logical commit. In order:
 | 49 | `8a2f6c4` | feat: standardize responses to the lab's status/data/details format |
 | 50 | `1fa5e3c` | feat: align file uploads with the brief (JPEG/PNG/PDF, 5 MB, multiple files) |
 | 51 | `b5689e6` | feat: align routes and query parameters with the brief |
-| 52 | *(this commit)* | feat: finish the lab alignment: structure tests, documentation and API collection |
+| 52 | `dc9f599` | feat: finish the lab alignment: structure tests, documentation and API collection |
+| 53 | *(this commit)* | feat: add Swagger UI with a tested OpenAPI document |

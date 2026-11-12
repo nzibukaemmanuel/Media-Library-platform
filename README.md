@@ -13,6 +13,7 @@ Built with Node.js, Express 5, PostgreSQL, Joi (validation) and Multer (uploads)
   - [Tags](#tags) · [Bulk operations](#bulk-operations) · [Health check](#health-check)
 - [Upload rules](#upload-rules)
 - [Errors](#errors)
+- [Interactive documentation (Swagger UI)](#interactive-documentation-swagger-ui)
 - [Testing the API with Postman or Insomnia](#testing-the-api-with-postman-or-insomnia)
 - [Project structure](#project-structure)
 - [Running the automated tests](#running-the-automated-tests)
@@ -46,6 +47,8 @@ The server logs `Server running on http://localhost:3000` (or your `PORT`). Chec
 ```bash
 curl http://localhost:3000/api/health
 ```
+
+Then open **http://localhost:3000/api-docs** for the interactive API documentation (Swagger UI), where you can read and try every endpoint in the browser.
 
 > **Upgrading an existing database?** Run `npm run db:init` once. It adds the `category` column (existing items become `general`) and leaves your data untouched.
 
@@ -474,6 +477,17 @@ Other `400` messages: `A file is required`, `At least one file is required`, `Th
 
 The real cause (message, stack, SQL detail) is written to the server log and never sent to the client. With `NODE_ENV=development` unexpected errors also include a `stack` field to help while coding.
 
+## Interactive documentation (Swagger UI)
+
+Every endpoint is documented in an interactive page served by the API itself:
+
+| URL | What it is |
+|---|---|
+| `/api-docs` | **Swagger UI**: browse the endpoints, read the parameters and example responses, and click **Try it out** to call them (file upload endpoints show a file chooser) |
+| `/api-docs.json` | The raw **OpenAPI 3** document, for Postman, Insomnia, code generators and other tools. It is served as standard OpenAPI JSON, not in the API's response format |
+
+The document lives in `src/docs/openapi.js` and is built from the same constants the validation uses (categories, sortable fields, file types, limits), so it cannot disagree with what the API accepts. An automated test (`tests/swagger.test.js`) also checks that the document is valid OpenAPI, that every route is described, that the documented query parameters and request fields are exactly the ones the validation accepts, and that the documented media object has exactly the fields the API returns.
+
 ## Testing the API with Postman or Insomnia
 
 [`docs/postman/Media-Library-API.postman_collection.json`](docs/postman/Media-Library-API.postman_collection.json) contains a request for every endpoint (23 in total), with example bodies, and a test on each one that checks the response format. It imports into **Postman** (Import → File) and into **Insomnia** (Import → From File).
@@ -496,6 +510,7 @@ src/
   validations/             Joi schemas for every request
   middlewares/             upload (Multer), validate (Joi), errorHandler
   config/                  Database pool (db.js) and shared limits (constants.js)
+  docs/                    openapi.js: the OpenAPI document shown by Swagger UI
   database/                schema.sql and the db:init script
   utils/                   AppError, catchAsync, apiResponse, fileStorage, fileTypes,
                            errorMessage, processHandlers
@@ -527,6 +542,7 @@ Runs the suite with Node's built-in test runner (no extra packages). The tests s
 | `tests/upload.multiple.test.js` | Multiple-file upload: storage, shared fields, limits, and the all-or-nothing behaviour |
 | `tests/media.query.test.js` | Pagination, sorting, every filter, search (wildcards, injection, accents) |
 | `tests/errors.test.js` | Error handling, response formats, simulated database failures, development vs production output |
+| `tests/swagger.test.js` | Swagger UI and the OpenAPI document: served correctly, valid OpenAPI, and matching the real routes, parameters, fields and response formats |
 | `tests/database.init.test.js` | `npm run db:init`: applies the schema, can be re-run, keeps data, creates the category column, reports errors |
 
 ## Known limitations
