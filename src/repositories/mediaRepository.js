@@ -212,6 +212,17 @@ const remove = async (id) => {
   return rows[0] || null;
 };
 
+// Delete several media assets. Returns the deleted rows (so the caller can
+// remove their files); ids that do not exist are simply absent.
+const removeMany = async (ids) => {
+  if (ids.length === 0) return [];
+  const { rows } = await pool.query(
+    'DELETE FROM media_assets WHERE id = ANY($1::int[]) RETURNING *',
+    [ids]
+  );
+  return rows;
+};
+
 // Apply the same metadata changes to several assets at once.
 // Returns the updated rows (ids that do not exist are simply absent).
 const updateMany = async (ids, data) => {
@@ -268,4 +279,5 @@ module.exports = {
   renameTag,
   deleteTag,
   remove,
+  removeMany,
 };
