@@ -24,20 +24,39 @@ const {
 
 const id = Joi.number().integer().positive().required().label('id');
 
-// Tags may be sent as "a, b" (form field / query string) or as ["a", "b"]
+// Tags may be sent as "a, b" (form field / query string) or as ["a", "b"].
+//
+// A comma-separated string is checked tag by tag, the same way the service
+// reads it (trimmed, lower-cased, duplicates and blanks dropped), so too many
+// tags or one that is too long is reported against the "tags" field like any
+// other validation error, instead of only failing later in the service.
+const checkTagString = (value, helpers) => {
+  const tags = [...new Set(value.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean))];
+  if (tags.length > MAX_TAGS) return helpers.message(`tags can contain at most ${MAX_TAGS} tags`);
+  if (tags.some((t) => t.length > MAX_TAG_LENGTH)) {
+    return helpers.message(`each tag must be at most ${MAX_TAG_LENGTH} characters`);
+  }
+  return value;
+};
+
+const tagArray = Joi.array().items(Joi.string().trim().min(1).max(MAX_TAG_LENGTH)).max(MAX_TAGS);
+
 const tagList = Joi.alternatives()
-  .try(
-    Joi.string().trim().max(MAX_TAGS * (MAX_TAG_LENGTH + 2)).allow(''),
-    Joi.array().items(Joi.string().trim().min(1).max(MAX_TAG_LENGTH)).max(MAX_TAGS)
-  )
+  .try(Joi.string().trim().allow('').custom(checkTagString), tagArray)
   .messages({
     'alternatives.match': `tags must be a comma-separated string or an array of at most ${MAX_TAGS} tags of up to ${MAX_TAG_LENGTH} characters`,
   });
 
 const nonEmptyTagList = Joi.alternatives()
   .try(
-    Joi.string().trim().min(1).max(MAX_TAGS * (MAX_TAG_LENGTH + 2)),
-    Joi.array().items(Joi.string().trim().min(1).max(MAX_TAG_LENGTH)).min(1).max(MAX_TAGS)
+    Joi.string()
+      .trim()
+      .min(1)
+      .custom(checkTagString)
+      .custom((value, helpers) =>
+        value.split(',').some((t) => t.trim()) ? value : helpers.message('Provide at least one tag')
+      ),
+    tagArray.min(1)
   )
   .required()
   .messages({

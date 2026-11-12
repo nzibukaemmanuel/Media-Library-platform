@@ -53,6 +53,9 @@ const uploadSingle = (req, res, next) => {
     storage,
     fileFilter,
     limits: { fileSize: getMaxFileSize(), files: 1 },
+    // Browsers send file names as UTF-8; multer's default (latin1) would turn
+    // "写真.png" or "Zażółć.png" into garbage like "å†™çœŸ.png"
+    defParamCharset: 'utf8',
   }).single('file');
 
   upload(req, res, (error) => {

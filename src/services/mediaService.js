@@ -98,6 +98,9 @@ const createMedia = async (file, body = {}) => {
     // service is safe no matter who calls it
     const check = checkUpload(file);
     if (!check.ok) throw new AppError(check.message, 400);
+    // A zero-byte "media file" is always a mistake (a failed export, an
+    // interrupted copy); better to say so than to store an unusable record
+    if (!file.size) throw new AppError('The uploaded file is empty', 400);
     const mediaType = check.mediaType;
 
     const metadata = compact(parseMetadata(body));
