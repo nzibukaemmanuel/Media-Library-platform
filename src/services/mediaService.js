@@ -3,8 +3,13 @@ const path = require('node:path');
 const mediaRepository = require('../repositories/mediaRepository');
 const AppError = require('../utils/AppError');
 const { deleteFile } = require('../utils/fileStorage');
-
-const MEDIA_TYPES = ['image', 'video', 'audio', 'document'];
+const {
+  MEDIA_TYPES,
+  MAX_TAGS,
+  MAX_TAG_LENGTH,
+  MAX_TITLE_LENGTH,
+  MAX_BULK,
+} = require('../config/constants');
 
 // Non-"type/..." MIME types that count as documents
 const DOCUMENT_MIME_TYPES = new Set([
@@ -17,11 +22,6 @@ const DOCUMENT_MIME_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'application/rtf',
 ]);
-
-const MAX_TAGS = 20;
-const MAX_TAG_LENGTH = 50;
-const MAX_TITLE_LENGTH = 255;
-const MAX_BULK = 100;
 
 // ---------- helpers ----------
 

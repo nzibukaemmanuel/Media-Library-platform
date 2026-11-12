@@ -1,4 +1,5 @@
 const { pool } = require('../config/db');
+const { SORTABLE_COLUMNS, DEFAULT_LIMIT, MAX_LIMIT } = require('../config/constants');
 
 // Columns a caller may set on create / change on update (never id or timestamps)
 const WRITABLE_COLUMNS = [
@@ -33,17 +34,7 @@ const create = async (data) => {
 
 // Columns results can be sorted by (whitelist: the column name is placed
 // into the SQL text, so it must never come straight from user input)
-const SORTABLE_COLUMNS = new Set([
-  'created_at',
-  'updated_at',
-  'title',
-  'file_size',
-  'media_type',
-  'original_name',
-]);
-
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 100;
+const SORTABLE_COLUMN_SET = new Set(SORTABLE_COLUMNS);
 
 // Parse a positive integer, falling back to a default for missing/invalid input
 const toPositiveInt = (value, fallback) => {
@@ -127,7 +118,7 @@ const findAll = async (filters = {}) => {
   const { sortBy, sortOrder } = filters;
   const { where, values } = buildWhere(filters);
 
-  const column = SORTABLE_COLUMNS.has(sortBy) ? sortBy : 'created_at';
+  const column = SORTABLE_COLUMN_SET.has(sortBy) ? sortBy : 'created_at';
   const direction = String(sortOrder).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
   const limit = Math.min(toPositiveInt(filters.limit, DEFAULT_LIMIT), MAX_LIMIT);
