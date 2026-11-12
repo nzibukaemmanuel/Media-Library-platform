@@ -54,12 +54,18 @@ const COLUMN_TO_FIELD = Object.fromEntries(
 // always far inside the safe integer range, so give clients real numbers.
 const toNumberOrNull = (value) => (value === null || value === undefined ? null : Number(value));
 
-// Database row -> API object (camelCase, numbers as numbers)
+// Database row -> API object (camelCase, numbers as numbers).
+// Fields always come out in the order of FIELD_TO_COLUMN, whatever order the
+// table's columns happen to be in (a column added by a later upgrade is last
+// in the table), so responses look the same on every database.
 const fromRow = (row) => {
   if (!row) return null;
   const media = {};
+  for (const [field, column] of Object.entries(FIELD_TO_COLUMN)) {
+    if (column in row) media[field] = row[column];
+  }
   for (const [column, value] of Object.entries(row)) {
-    media[COLUMN_TO_FIELD[column] ?? column] = value;
+    if (!(COLUMN_TO_FIELD[column] in media)) media[COLUMN_TO_FIELD[column] ?? column] = value;
   }
   media.fileSize = toNumberOrNull(media.fileSize);
   media.duration = toNumberOrNull(media.duration);

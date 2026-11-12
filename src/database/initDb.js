@@ -1,5 +1,8 @@
 // Applies schema.sql to the database configured in .env.
 // Usage: npm run db:init
+//
+// Safe to run repeatedly, and it also upgrades a database created by an older
+// version of the schema (for example, it adds the category column).
 require('dotenv').config();
 
 const fs = require('node:fs/promises');
@@ -12,14 +15,18 @@ const main = async () => {
     const sql = await fs.readFile(path.join(__dirname, 'schema.sql'), 'utf8');
     await pool.query(sql);
     console.log('Database schema applied successfully');
+  } catch (error) {
+    console.error(`Failed to apply schema: ${getErrorMessage(error)}`);
+    process.exitCode = 1;
   } finally {
     // Always release the connections so the process can exit, success or not
-    await pool.end();
+    try {
+      await pool.end();
+    } catch (error) {
+      console.error(`Failed to close the database connection: ${getErrorMessage(error)}`);
+      process.exitCode = 1;
+    }
   }
 };
 
-// One place that decides what a failure looks like
-main().catch((error) => {
-  console.error(`Failed to apply schema: ${getErrorMessage(error)}`);
-  process.exitCode = 1;
-});
+void main();

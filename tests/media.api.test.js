@@ -135,6 +135,14 @@ describe('Media API endpoints', () => {
       for (const key of Object.keys(media)) assert.doesNotMatch(key, /_/, `"${key}" must not be snake_case`);
     });
 
+    it('lists the fields in a fixed, readable order', async () => {
+      const media = await createMedia();
+      assert.deepEqual(Object.keys(media), [
+        'id', 'title', 'description', 'category', 'mediaType', 'fileName', 'originalName', 'filePath',
+        'mimeType', 'fileSize', 'width', 'height', 'duration', 'tags', 'createdAt', 'updatedAt',
+      ]);
+    });
+
     it('returns fileSize and duration as numbers, not strings', async () => {
       const media = await createMedia({ content: 'twelve bytes', fields: { duration: '12.345', width: '640' } });
       assert.equal(typeof media.fileSize, 'number');
