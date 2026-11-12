@@ -212,11 +212,60 @@ const remove = async (id) => {
   return rows[0] || null;
 };
 
+// Apply the same metadata changes to several assets at once.
+// Returns the updated rows (ids that do not exist are simply absent).
+const updateMany = async (ids, data) => {
+  const columns = WRITABLE_COLUMNS.filter((c) => data[c] !== undefined);
+  if (columns.length === 0 || ids.length === 0) return [];
+
+  const setClause = columns.map((c, i) => `${c} = $${i + 1}`).join(', ');
+  const values = columns.map((c) => data[c]);
+
+  const { rows } = await pool.query(
+    `UPDATE media_assets SET ${setClause}
+     WHERE id = ANY($${columns.length + 1}::int[])
+     RETURNING *`,
+    [...values, ids]
+  );
+  return rows;
+};
+
+// Rename a tag on every asset that has it. If an asset already has the new
+// tag, the two merge (no duplicates) and the original tag order is kept.
+// Returns the number of assets changed.
+const renameTag = async (oldTag, newTag) => {
+  const { rowCount } = await pool.query(
+    `UPDATE media_assets
+     SET tags = ARRAY(
+       SELECT t FROM unnest(array_replace(tags, $1::text, $2::text))
+         WITH ORDINALITY AS x(t, pos)
+       GROUP BY t ORDER BY MIN(pos)
+     )
+     WHERE $1::text = ANY(tags)`,
+    [oldTag, newTag]
+  );
+  return rowCount;
+};
+
+// Remove a tag from every asset that has it. Returns the number changed.
+const deleteTag = async (tag) => {
+  const { rowCount } = await pool.query(
+    `UPDATE media_assets
+     SET tags = array_remove(tags, $1::text)
+     WHERE $1::text = ANY(tags)`,
+    [tag]
+  );
+  return rowCount;
+};
+
 module.exports = {
   create,
   findAll,
   getTags,
   findById,
   update,
+  updateMany,
+  renameTag,
+  deleteTag,
   remove,
 };
