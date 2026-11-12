@@ -13,12 +13,12 @@ app.use(express.json());
 
 // Test route
 app.get('/', (req, res) => {
-  sendSuccess(res, { message: 'Welcome to Media Library Platform API' });
+  sendSuccess(res, { data: { message: 'Welcome to Media Library Platform API' } });
 });
 
 // Health-check route
 app.get('/api/health', (req, res) => {
-  sendSuccess(res, { message: 'Server is running successfully' });
+  sendSuccess(res, { data: { message: 'Server is running successfully' } });
 });
 
 // Media API

@@ -72,15 +72,21 @@ describe('Pagination, filtering, sorting and search', () => {
   const ok = async (query) => {
     const res = await list(query);
     assert.equal(res.status, 200, `${query}: ${JSON.stringify(res.body)}`);
-    assert.equal(res.body.meta.count, res.body.data.length, 'meta.count matches the page');
-    return res.body;
+    assert.deepEqual(Object.keys(res.body).sort(), ['data', 'status']);
+    assert.equal(res.body.status, 'success');
+    assert.deepEqual(Object.keys(res.body.data).sort(), ['pagination', 'results']);
+    const { results, pagination } = res.body.data;
+    assert.ok(Array.isArray(results));
+    assert.deepEqual(Object.keys(pagination).sort(), ['limit', 'page', 'total', 'totalPages']);
+    return { data: results, meta: { count: results.length, pagination } };
   };
   const rejected = async (query, field) => {
     const res = await list(query);
     assert.equal(res.status, 400, `${query} should be rejected: ${JSON.stringify(res.body).slice(0, 200)}`);
-    assert.equal(res.body.success, false);
+    assert.equal(res.body.status, 'error');
+    assert.equal(res.body.message, 'Validation failed');
     if (field) {
-      assert.ok(res.body.errors.some((e) => e.source === 'query' && e.field === field), JSON.stringify(res.body.errors));
+      assert.ok(res.body.details.some((d) => d.field === field), JSON.stringify(res.body.details));
     }
     return res.body;
   };
@@ -98,13 +104,13 @@ describe('Pagination, filtering, sorting and search', () => {
       const body = await ok('');
       assert.equal(body.data.length, 20);
       assert.deepEqual(ids(body), expected().slice(0, 20));
-      assert.deepEqual(body.meta.pagination, { page: 1, limit: 20, total: 24, totalPages: 2, hasNext: true, hasPrev: false });
+      assert.deepEqual(body.meta.pagination, { page: 1, limit: 20, total: 24, totalPages: 2 });
     });
 
     it('returns the remaining rows on the last page', async () => {
       const body = await ok('page=2');
       assert.deepEqual(ids(body), expected().slice(20));
-      assert.deepEqual(body.meta.pagination, { page: 2, limit: 20, total: 24, totalPages: 2, hasNext: false, hasPrev: true });
+      assert.deepEqual(body.meta.pagination, { page: 2, limit: 20, total: 24, totalPages: 2 });
     });
 
     it('walks every page exactly once with no duplicates or gaps', async () => {
@@ -112,8 +118,7 @@ describe('Pagination, filtering, sorting and search', () => {
       for (let page = 1; page <= 5; page++) {
         const body = await ok(`limit=5&page=${page}`);
         assert.equal(body.meta.pagination.totalPages, 5);
-        assert.equal(body.meta.pagination.hasNext, page < 5);
-        assert.equal(body.meta.pagination.hasPrev, page > 1);
+        assert.equal(body.meta.pagination.page, page);
         seen.push(...ids(body));
       }
       assert.deepEqual(seen, expected());
@@ -123,7 +128,7 @@ describe('Pagination, filtering, sorting and search', () => {
       const body = await ok('page=99&limit=5');
       assert.deepEqual(body.data, []);
       assert.equal(body.meta.pagination.total, 24);
-      assert.equal(body.meta.pagination.hasNext, false);
+      assert.equal(body.meta.pagination.page, 99);
     });
 
     it('supports limit and offset', async () => {
@@ -177,12 +182,12 @@ describe('Pagination, filtering, sorting and search', () => {
 
     it('rejects page and offset together', async () => {
       const body = await rejected('page=2&offset=10');
-      assert.match(body.message, /either page or offset/);
+      assert.match(JSON.stringify(body.details), /either page or offset/i);
     });
 
     it('reports every invalid parameter at once', async () => {
       const body = await rejected('page=0&limit=0&sortOrder=x');
-      assert.deepEqual(body.errors.map((e) => e.field).sort(), ['limit', 'page', 'sortOrder']);
+      assert.deepEqual(body.details.map((d) => d.field).sort(), ['limit', 'page', 'sortOrder']);
     });
   });
 
@@ -322,7 +327,7 @@ describe('Pagination, filtering, sorting and search', () => {
 
     it('rejects an unknown category', async () => {
       const body = await rejected('category=videos', 'category');
-      assert.match(JSON.stringify(body.errors), /category must be one of: general, marketing, design, documentation, reports, other/);
+      assert.match(JSON.stringify(body.details), /category must be one of: general, marketing, design, documentation, reports, other/i);
     });
 
     it('combines category with other filters', async () => {
@@ -382,7 +387,7 @@ describe('Pagination, filtering, sorting and search', () => {
       await rejected('minSize=abc', 'minSize');
       await rejected('maxSize=1.5', 'maxSize');
       const body = await rejected('minSize=900&maxSize=100', 'maxSize');
-      assert.match(JSON.stringify(body.errors), /maxSize cannot be less than minSize/);
+      assert.match(JSON.stringify(body.details), /maxSize cannot be less than minSize/i);
     });
 
     it('filters by creation date range, inclusive at both ends', async () => {
@@ -405,7 +410,7 @@ describe('Pagination, filtering, sorting and search', () => {
       await rejected('createdFrom=yesterday', 'createdFrom');
       await rejected('createdTo=2025-13-45', 'createdTo');
       const body = await rejected('createdFrom=2025-02-01&createdTo=2025-01-01', 'createdTo');
-      assert.match(JSON.stringify(body.errors), /createdTo cannot be before createdFrom/);
+      assert.match(JSON.stringify(body.details), /createdTo cannot be before createdFrom/i);
     });
 
     it('combines every filter with AND', async () => {
@@ -431,7 +436,7 @@ describe('Pagination, filtering, sorting and search', () => {
 
     it('rejects unknown query parameters', async () => {
       const body = await rejected('colour=red', 'colour');
-      assert.match(JSON.stringify(body.errors), /not allowed/);
+      assert.match(JSON.stringify(body.details), /not allowed/i);
     });
   });
 

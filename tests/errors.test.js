@@ -38,12 +38,14 @@ describe('Global error handling and API responses', () => {
     assert.equal(res.status, status, res.text.slice(0, 300));
     assert.match(res.headers.get('content-type'), /^application\/json/);
     assert.ok(res.json, `body must be JSON, got: ${res.text.slice(0, 100)}`);
-    assert.equal(res.json.success, false);
+    assert.equal(res.json.status, 'error');
     assert.equal(typeof res.json.message, 'string');
     assert.ok(res.json.message.length > 0);
     for (const key of Object.keys(res.json)) {
-      assert.ok(['success', 'message', 'errors', 'stack'].includes(key), `unexpected key "${key}" in an error response`);
+      assert.ok(['status', 'message', 'details', 'stack'].includes(key), `unexpected key "${key}" in an error response`);
     }
+    assert.ok(Array.isArray(res.json.details), 'details is always present, empty when there are no field problems');
+    for (const d of res.json.details) assert.deepEqual(Object.keys(d).sort(), ['field', 'message']);
     assert.equal('data' in res.json, false, 'errors never carry data');
     assert.doesNotMatch(res.text, /<html|<pre>/i, 'never an HTML page');
     assert.doesNotMatch(res.text, /node_modules|\bat\s+\S+\s+\(.*:\d+:\d+\)/, 'never a stack trace or internal path');
@@ -123,7 +125,7 @@ describe('Global error handling and API responses', () => {
     it('treats a body with the wrong content type as no body (validation error, not a crash)', async () => {
       const res = await raw('PATCH', '/api/media/1', { headers: { 'content-type': 'text/plain' }, body: '{"title":"x"}' });
       assertErrorEnvelope(res, 400);
-      assert.match(res.json.message, /at least one field/);
+      assert.ok(res.json.details.some((d) => /at least one field/.test(d.message)), JSON.stringify(res.json));
     });
 
     it('handles an empty body on a route that needs one', async () => {
@@ -140,33 +142,36 @@ describe('Global error handling and API responses', () => {
   });
 
   describe('validation errors', () => {
-    it('lists every problem with its source and field', async () => {
+    it('says "Validation failed" and lists every problem with its field', async () => {
       const res = await json('PATCH', '/api/media/abc', { title: '', colour: 'red' });
       assertErrorEnvelope(res, 400);
-      assert.ok(Array.isArray(res.json.errors));
-      for (const e of res.json.errors) {
-        assert.deepEqual(Object.keys(e).sort(), ['field', 'message', 'source']);
-        assert.ok(['params', 'query', 'body'].includes(e.source));
-      }
-      const found = res.json.errors.map((e) => `${e.source}:${e.field}`).sort();
-      assert.deepEqual(found, ['body:colour', 'body:title', 'params:id']);
+      assert.equal(res.json.message, 'Validation failed');
+      // problems from the URL (id) and the body (title, colour) are reported together
+      assert.deepEqual(res.json.details.map((d) => d.field).sort(), ['colour', 'id', 'title']);
     });
 
-    it('joins the messages into the main message', async () => {
+    it('writes each detail as a readable sentence starting with a capital', async () => {
       const res = await json('PATCH', '/api/media/abc', { title: '' });
-      for (const e of res.json.errors) assert.ok(res.json.message.includes(e.message));
+      for (const d of res.json.details) assert.match(d.message, /^[A-Z]/, d.message);
+      assert.ok(res.json.details.some((d) => d.field === 'id' && d.message === 'Id must be a number'));
     });
 
-    it('reports query errors with the query source', async () => {
+    it('reports query string problems by parameter name', async () => {
       const res = await raw('GET', '/api/media?page=0&sortBy=evil');
       assertErrorEnvelope(res, 400);
-      assert.deepEqual(res.json.errors.map((e) => e.source), ['query', 'query']);
+      assert.deepEqual(res.json.details.map((d) => d.field).sort(), ['page', 'sortBy']);
     });
 
-    it('omits the errors list for errors that are not field problems', async () => {
+    it('uses a null field for a problem with the request as a whole', async () => {
+      const res = await raw('GET', '/api/media?page=2&offset=10');
+      assertErrorEnvelope(res, 400);
+      assert.ok(res.json.details.some((d) => d.field === null && /either page or offset/.test(d.message)), JSON.stringify(res.json.details));
+    });
+
+    it('has an empty details list for errors that are not field problems', async () => {
       const res = await raw('GET', '/api/media/999999');
       assertErrorEnvelope(res, 404);
-      assert.equal('errors' in res.json, false);
+      assert.deepEqual(res.json.details, []);
     });
 
     it('answers 400 for a bad id before it ever looks for the record', async () => {
@@ -224,7 +229,7 @@ describe('Global error handling and API responses', () => {
     it('returns a generic 500 without leaking the message', async () => {
       const res = await withBrokenDb(bug(), () => raw('GET', '/api/media/5'));
       assertErrorEnvelope(res, 500);
-      assert.deepEqual(res.json, { success: false, message: 'Internal server error' });
+      assert.deepEqual(res.json, { status: 'error', message: 'Internal server error', details: [] });
       assert.doesNotMatch(res.text, /secretField|TypeError/);
     });
 
@@ -273,7 +278,7 @@ describe('Global error handling and API responses', () => {
         t.pool.query = original;
       }
       assert.equal(res.status, 500);
-      assert.deepEqual(res.body, { success: false, message: 'Internal server error' });
+      assert.deepEqual(res.body, { status: 'error', message: 'Internal server error', details: [] });
       assert.deepEqual(t.filesOnDisk(), [], 'the stored file must not be left behind');
       assert.equal(await t.rowCount(), 0);
     });
@@ -305,18 +310,15 @@ describe('Global error handling and API responses', () => {
   });
 
   describe('success responses', () => {
-    // Every success response is { success: true, message, data } plus meta only when there is extra information
-    const assertSuccessEnvelope = (res, status, { meta = false } = {}) => {
+    // Every success response is exactly { status: "success", data }
+    const assertSuccessEnvelope = (res, status) => {
       assert.equal(res.status, status, res.text.slice(0, 300));
       assert.match(res.headers.get('content-type'), /^application\/json/);
-      assert.equal(res.json.success, true);
-      assert.equal(typeof res.json.message, 'string');
-      assert.ok(res.json.message.length > 0);
-      assert.ok('data' in res.json, 'data is always present');
-      assert.deepEqual(Object.keys(res.json).sort(), meta ? ['data', 'message', 'meta', 'success'] : ['data', 'message', 'success']);
+      assert.equal(res.json.status, 'success');
+      assert.deepEqual(Object.keys(res.json).sort(), ['data', 'status']);
     };
 
-    it('uses the same envelope on every endpoint', async () => {
+    it('uses the same format on every endpoint', async () => {
       assertSuccessEnvelope(await raw('GET', '/'), 200);
       assertSuccessEnvelope(await raw('GET', '/api/health'), 200);
 
@@ -327,12 +329,12 @@ describe('Global error handling and API responses', () => {
       const wrap = (r) => ({ status: r.status, headers: new Headers({ 'content-type': 'application/json' }), json: r.body, text: JSON.stringify(r.body) });
       assertSuccessEnvelope(wrap(created), 201);
 
-      assertSuccessEnvelope(await raw('GET', '/api/media'), 200, { meta: true });
+      assertSuccessEnvelope(await raw('GET', '/api/media'), 200);
       assertSuccessEnvelope(await raw('GET', `/api/media/${id}`), 200);
       assertSuccessEnvelope(await json('PATCH', `/api/media/${id}`, { title: 'new' }), 200);
       assertSuccessEnvelope(await json('POST', `/api/media/${id}/tags`, { tags: ['c'] }), 200);
       assertSuccessEnvelope(await json('DELETE', `/api/media/${id}/tags`, { tags: ['c'] }), 200);
-      assertSuccessEnvelope(await raw('GET', '/api/media/tags'), 200, { meta: true });
+      assertSuccessEnvelope(await raw('GET', '/api/media/tags'), 200);
       assertSuccessEnvelope(await json('PATCH', '/api/media/tags/rename', { from: 'a', to: 'z' }), 200);
       assertSuccessEnvelope(await raw('DELETE', '/api/media/tags/z'), 200);
       assertSuccessEnvelope(await json('POST', '/api/media/bulk-update', { ids: [id, second], description: 'd' }), 200);
@@ -340,17 +342,22 @@ describe('Global error handling and API responses', () => {
       assertSuccessEnvelope(await json('POST', '/api/media/bulk-delete', { ids: [second] }), 200);
     });
 
-    it('returns data: null when there is nothing to return, and [] for an empty list', async () => {
-      assert.equal((await raw('GET', '/api/health')).json.data, null);
+    it('returns a list as data.results with data.pagination, even when empty', async () => {
+      const empty = await raw('GET', '/api/media');
+      assertSuccessEnvelope(empty, 200);
+      assert.deepEqual(empty.json.data, { results: [], pagination: { total: 0, page: 1, limit: 20, totalPages: 0 } });
+
+      await t.upload();
       const list = await raw('GET', '/api/media');
-      assert.deepEqual(list.json.data, []);
-      assert.deepEqual(list.json.meta, { count: 0, pagination: { page: 1, limit: 20, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+      assert.deepEqual(Object.keys(list.json.data).sort(), ['pagination', 'results']);
+      assert.equal(list.json.data.results.length, 1);
+      assert.deepEqual(list.json.data.pagination, { total: 1, page: 1, limit: 20, totalPages: 1 });
     });
 
-    it('never puts count, total or pagination at the top level', async () => {
+    it('never puts count, total, pagination, meta or message at the top level', async () => {
       await t.upload();
       const res = await raw('GET', '/api/media');
-      for (const key of ['count', 'total', 'pagination']) assert.equal(key in res.json, false);
+      for (const key of ['count', 'total', 'pagination', 'meta', 'message', 'success']) assert.equal(key in res.json, false, key);
     });
 
     it('does not advertise the framework', async () => {
@@ -358,13 +365,12 @@ describe('Global error handling and API responses', () => {
       assert.equal(res.headers.get('x-powered-by'), null);
     });
 
-    it('says when a record was deleted but its file could not be removed', async () => {
+    it('reports fileDeleted: false when a record was deleted but its file could not be removed', async () => {
       const media = (await t.upload()).body.data;
       require('node:fs').rmSync(media.filePath);
       const res = await raw('DELETE', `/api/media/${media.id}`);
       assertSuccessEnvelope(res, 200);
       assert.deepEqual(res.json.data, { id: media.id, fileDeleted: false });
-      assert.match(res.json.message, /file could not be removed/);
     });
   });
 
@@ -381,13 +387,13 @@ describe('Global error handling and API responses', () => {
     it('uses an AppError status and message as they are', () => {
       const out = run(new AppError('custom message', 418));
       assert.equal(out.status, 418);
-      assert.deepEqual(out.body, { success: false, message: 'custom message' });
+      assert.deepEqual(out.body, { status: 'error', message: 'custom message', details: [] });
     });
 
     it('passes validation details through', () => {
-      const details = [{ source: 'body', field: 'title', message: 'title is required' }];
-      const out = run(Object.assign(new AppError('bad', 400), { errors: details }));
-      assert.deepEqual(out.body.errors, details);
+      const details = [{ field: 'title', message: 'Title is required' }];
+      const out = run(new AppError('Validation failed', 400, details));
+      assert.deepEqual(out.body, { status: 'error', message: 'Validation failed', details });
     });
 
     it('does not write a response that has already started, and hands the error to Express', () => {

@@ -6,7 +6,7 @@ const { sendError } = require('../utils/apiResponse');
 // by a middleware such as body parsing or multer) ends up in errorHandler,
 // which always answers with the same JSON shape:
 //
-//   { success: false, message: "...", errors?: [{ source, field, message }] }
+//   { status: "error", message: "...", details: [{ field, message }] }
 //
 // The client only ever sees safe, intentional messages. Details of
 // unexpected failures (stack traces, SQL errors) are logged on the server
@@ -44,7 +44,7 @@ const isDbUnavailable = (err) =>
 const normalize = (err) => {
   // Our own errors (validation, not found, bad input...)
   if (err instanceof AppError) {
-    return { statusCode: err.statusCode, message: err.message, errors: err.errors, expected: true };
+    return { statusCode: err.statusCode, message: err.message, details: err.details, expected: true };
   }
 
   // Body parser errors: malformed JSON, body too large, unsupported charset
@@ -87,7 +87,7 @@ const errorHandler = (err, req, res, next) => {
   // Express close the connection
   if (res.headersSent) return next(err);
 
-  const { statusCode, message, errors, expected } = normalize(err ?? new Error('Unknown error'));
+  const { statusCode, message, details, expected } = normalize(err ?? new Error('Unknown error'));
 
   // Log what the client must not see. Expected client errors stay quiet.
   if (!expected) {
@@ -98,7 +98,7 @@ const errorHandler = (err, req, res, next) => {
   return sendError(res, {
     statusCode,
     message,
-    errors,
+    details,
     stack: isDevelopment() && !expected ? err?.stack : undefined,
   });
 };

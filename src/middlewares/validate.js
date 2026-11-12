@@ -32,16 +32,19 @@ const replace = (req, source, value) => {
   }
 };
 
-// Build one flat, readable error from the Joi details of every source
-const toAppError = (details) => {
-  const errors = details.map(({ source, error }) => ({
-    source, // "params" | "query" | "body"
+// "title is required" -> "Title is required"
+const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1);
+
+// Build the 400 error for a failed validation: the message is always
+// "Validation failed" and every problem, from every part of the request,
+// is listed in details as { field, message }. field is null for a problem
+// with the request as a whole (e.g. sending both page and offset).
+const toAppError = (failures) => {
+  const details = failures.map(({ error }) => ({
     field: error.path.join('.') || null,
-    message: error.message,
+    message: capitalize(error.message),
   }));
-  const appError = new AppError(errors.map((e) => e.message).join('; '), 400);
-  appError.errors = errors; // lets the error handler return per-field details
-  return appError;
+  return new AppError('Validation failed', 400, details);
 };
 
 // Reusable request validation middleware.

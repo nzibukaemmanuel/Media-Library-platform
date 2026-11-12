@@ -30,8 +30,9 @@ describe('Upload validation edge cases', () => {
   };
   const assertRejected = async (res, pattern) => {
     assert.equal(res.status, 400, JSON.stringify(res.body));
-    assert.equal(res.body.success, false);
-    if (pattern) assert.match(res.body.message, pattern);
+    assert.equal(res.body.status, 'error');
+    // the message, or the field-level details of a validation error
+    if (pattern) assert.match([res.body.message, ...res.body.details.map((d) => d.message)].join(' | '), pattern);
     await assertNothingStored();
   };
 
@@ -240,7 +241,7 @@ describe('Upload validation edge cases', () => {
       it(`rejects ${label}, names the field, and removes the uploaded file`, async () => {
         const res = await t.upload({ fields });
         assert.equal(res.status, 400, JSON.stringify(res.body));
-        assert.ok(res.body.errors.some((e) => e.source === 'body' && e.field === field), JSON.stringify(res.body.errors));
+        assert.ok(res.body.details.some((d) => d.field === field), JSON.stringify(res.body.details));
         await assertNothingStored();
       });
     }
@@ -248,7 +249,7 @@ describe('Upload validation edge cases', () => {
     it('reports every invalid field at once', async () => {
       const res = await t.upload({ fields: { title: '', width: '-1', duration: 'x', colour: 'red' } });
       assert.equal(res.status, 400);
-      assert.deepEqual(res.body.errors.map((e) => e.field).sort(), ['colour', 'duration', 'title', 'width']);
+      assert.deepEqual(res.body.details.map((d) => d.field).sort(), ['colour', 'duration', 'title', 'width']);
       await assertNothingStored();
     });
 

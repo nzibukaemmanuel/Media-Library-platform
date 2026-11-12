@@ -5,18 +5,27 @@ const fs = require('node:fs');
 // Must be required before anything from src/ (sets the test database)
 const { startTestApp } = require('./helpers/testApp');
 
-// Every response must use the standard envelope
+// Every response must use the standard format:
+//   success: { status: "success", data }
+//   error:   { status: "error", message, details: [{ field, message }] }
 const assertSuccess = (res, status) => {
   assert.equal(res.status, status, JSON.stringify(res.body));
-  assert.equal(res.body.success, true);
-  assert.equal(typeof res.body.message, 'string');
-  assert.ok('data' in res.body);
+  assert.deepEqual(Object.keys(res.body).sort(), ['data', 'status']);
+  assert.equal(res.body.status, 'success');
 };
+// messagePattern is matched against the message and the field-level details,
+// because validation errors say "Validation failed" and list the problems in details
 const assertError = (res, status, messagePattern) => {
   assert.equal(res.status, status, JSON.stringify(res.body));
-  assert.equal(res.body.success, false);
-  assert.equal('data' in res.body, false);
-  if (messagePattern) assert.match(res.body.message, messagePattern);
+  assert.deepEqual(Object.keys(res.body).sort(), ['details', 'message', 'status']);
+  assert.equal(res.body.status, 'error');
+  assert.ok(Array.isArray(res.body.details));
+  for (const d of res.body.details) assert.deepEqual(Object.keys(d).sort(), ['field', 'message']);
+  if (messagePattern) {
+    // details are capitalised sentences ("Title is required"), so match without regard to case
+    const text = [res.body.message, ...res.body.details.map((d) => d.message)].join(' | ');
+    assert.match(text, new RegExp(messagePattern.source, messagePattern.flags.includes('i') ? messagePattern.flags : `${messagePattern.flags}i`));
+  }
 };
 
 describe('Media API endpoints', () => {
@@ -48,7 +57,7 @@ describe('Media API endpoints', () => {
     it('health check reports the server is running', async () => {
       const res = await t.request('GET', '/api/health');
       assertSuccess(res, 200);
-      assert.match(res.body.message, /running/i);
+      assert.match(res.body.data.message, /running/i);
     });
 
     it('unknown routes return a JSON 404', async () => {
@@ -64,7 +73,6 @@ describe('Media API endpoints', () => {
         fields: { title: 'Holiday', description: 'Beach day', tags: 'Summer, Beach', width: '640', height: '480' },
       });
       assertSuccess(res, 201);
-      assert.equal(res.body.message, 'Media uploaded successfully');
 
       const media = res.body.data;
       assert.equal(media.title, 'Holiday');
@@ -88,7 +96,7 @@ describe('Media API endpoints', () => {
     it('requires a title', async () => {
       const res = await t.uploadForm((f) => f.append('file', new Blob(['bytes'], { type: 'image/png' }), 'sunset.png'));
       assertError(res, 400, /title is required/);
-      assert.ok(res.body.errors.some((e) => e.source === 'body' && e.field === 'title'));
+      assert.ok(res.body.details.some((d) => d.field === 'title'));
       assert.deepEqual(t.filesOnDisk(), [], 'the rejected upload must not be stored');
       assert.equal(await t.rowCount(), 0);
     });
@@ -135,7 +143,7 @@ describe('Media API endpoints', () => {
       const fetched = (await t.request('GET', `/api/media/${media.id}`)).body.data;
       assert.equal(fetched.fileSize, media.fileSize);
       assert.equal(fetched.duration, 12.35);
-      const listed = (await t.request('GET', '/api/media')).body.data;
+      const listed = (await t.request('GET', '/api/media')).body.data.results;
       assert.ok(listed.every((m) => typeof m.fileSize === 'number'));
     });
   });
@@ -160,7 +168,7 @@ describe('Media API endpoints', () => {
     it('rejects an unknown category on upload and stores nothing', async () => {
       const res = await t.upload({ fields: { category: 'cat-pictures' } });
       assertError(res, 400, /category must be one of: general, marketing, design, documentation, reports, other/);
-      assert.ok(res.body.errors.some((e) => e.source === 'body' && e.field === 'category'));
+      assert.ok(res.body.details.some((d) => d.field === 'category'));
       assert.deepEqual(t.filesOnDisk(), []);
       assert.equal(await t.rowCount(), 0);
     });
@@ -192,7 +200,7 @@ describe('Media API endpoints', () => {
       await createMedia({ fields: { category: 'reports', title: 'A report' } });
       const res = await t.request('GET', '/api/media?category=design');
       assertSuccess(res, 200);
-      assert.deepEqual(res.body.data.map((m) => m.title), ['A design']);
+      assert.deepEqual(res.body.data.results.map((m) => m.title), ['A design']);
     });
   });
 
@@ -218,9 +226,8 @@ describe('Media API endpoints', () => {
     it('returns an empty list when there is no media', async () => {
       const res = await t.request('GET', '/api/media');
       assertSuccess(res, 200);
-      assert.deepEqual(res.body.data, []);
-      assert.equal(res.body.meta.count, 0);
-      assert.equal(res.body.meta.pagination.total, 0);
+      assert.deepEqual(res.body.data.results, []);
+      assert.deepEqual(res.body.data.pagination, { total: 0, page: 1, limit: 20, totalPages: 0 });
     });
 
     it('returns media newest first with pagination info', async () => {
@@ -230,11 +237,9 @@ describe('Media API endpoints', () => {
 
       const res = await t.request('GET', '/api/media');
       assertSuccess(res, 200);
-      assert.deepEqual(res.body.data.map((m) => m.title), ['third', 'second', 'first']);
-      assert.equal(res.body.meta.count, 3);
-      assert.deepEqual(res.body.meta.pagination, {
-        page: 1, limit: 20, total: 3, totalPages: 1, hasNext: false, hasPrev: false,
-      });
+      assert.deepEqual(Object.keys(res.body.data).sort(), ['pagination', 'results']);
+      assert.deepEqual(res.body.data.results.map((m) => m.title), ['third', 'second', 'first']);
+      assert.deepEqual(res.body.data.pagination, { total: 3, page: 1, limit: 20, totalPages: 1 });
     });
   });
 
@@ -329,7 +334,6 @@ describe('Media API endpoints', () => {
         { tag: 'shared', count: 2 },
         { tag: 'only-a', count: 1 },
       ]);
-      assert.equal(res.body.meta.count, 2);
     });
 
     it('renames a tag across all items', async () => {
