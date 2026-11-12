@@ -1,0 +1,19 @@
+{
+  "name": "media-library-platform",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nzibukaemmanuel/Media-Library-platform.git"
+  },
+  "keywords": [],
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/nzibukaemmanuel/Media-Library-platform/issues"
+  },
+  "homepage": "https://github.com/nzibukaemmanuel/Media-Library-platform#readme"
+}
