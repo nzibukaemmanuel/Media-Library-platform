@@ -123,7 +123,7 @@ const renameTagBody = Joi.object({
 const tagParams = Joi.object({ tag: singleTag.required() });
 
 // GET /media: search, filter, sort and pagination
-const listMediaQuery = Joi.object({
+const listMediaFields = {
   // filters
   search: Joi.string().trim().min(1).max(MAX_TITLE_LENGTH),
   mediaType: Joi.alternatives().try(
@@ -135,6 +135,9 @@ const listMediaQuery = Joi.object({
     Joi.array().items(mediaTypeValue).min(1)
   ).messages({
     'alternatives.match': `mediaType must be one or more of: ${MEDIA_TYPES.join(', ')}`,
+    'string.pattern.base': `mediaType must be one or more of: ${MEDIA_TYPES.join(', ')}`,
+    'array.includes': `mediaType must be one or more of: ${MEDIA_TYPES.join(', ')}`,
+    'any.only': `mediaType must be one or more of: ${MEDIA_TYPES.join(', ')}`,
   }),
   mimeType: Joi.string().trim().lowercase().max(127).pattern(/^[\w.+-]+\/[\w.+-]+$/).messages({
     'string.pattern.base': 'mimeType must look like "image/png"',
@@ -143,13 +146,26 @@ const listMediaQuery = Joi.object({
   tags: nonEmptyTagList.optional(),
   anyTags: nonEmptyTagList.optional(),
   minSize: Joi.number().integer().min(0),
-  maxSize: Joi.number().integer().min(0).min(Joi.ref('minSize')).messages({
-    'number.min': 'maxSize cannot be less than minSize',
-  }),
+  // only compared with minSize when minSize is actually given
+  maxSize: Joi.number()
+    .integer()
+    .min(0)
+    .when('minSize', {
+      is: Joi.exist(),
+      then: Joi.number().min(Joi.ref('minSize')).messages({
+        'number.min': 'maxSize cannot be less than minSize',
+      }),
+    }),
   createdFrom: Joi.date().iso(),
-  createdTo: Joi.date().iso().min(Joi.ref('createdFrom')).messages({
-    'date.min': 'createdTo cannot be before createdFrom',
-  }),
+  // only compared with createdFrom when createdFrom is actually given
+  createdTo: Joi.date()
+    .iso()
+    .when('createdFrom', {
+      is: Joi.exist(),
+      then: Joi.date().min(Joi.ref('createdFrom')).messages({
+        'date.min': 'createdTo cannot be before createdFrom',
+      }),
+    }),
 
   // sorting
   sortBy: Joi.string().valid(...SORTABLE_COLUMNS),
@@ -159,7 +175,17 @@ const listMediaQuery = Joi.object({
   page: Joi.number().integer().min(1),
   limit: Joi.number().integer().min(1).max(MAX_LIMIT),
   offset: Joi.number().integer().min(0),
-}).oxor('page', 'offset');
+};
+
+// An empty value ("?search=&page=") means "not provided", the same as
+// leaving the parameter out, so a UI can send blank filters safely.
+const listMediaQuery = Joi.object(
+  Object.fromEntries(
+    Object.entries(listMediaFields).map(([key, schema]) => [key, schema.empty('')])
+  )
+)
+  .oxor('page', 'offset')
+  .messages({ 'object.oxor': 'Use either page or offset, not both' });
 
 module.exports = {
   createMediaBody,

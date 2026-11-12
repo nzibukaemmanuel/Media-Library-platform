@@ -41,7 +41,7 @@ router.post(
 // ----- Collection -----
 router
   .route('/')
-  .get(mediaController.listMedia)
+  .get(validate({ query: schemas.listMediaQuery }), mediaController.listMedia)
   // multipart, field "file". The upload runs first, then the other form
   // fields are validated; if they are invalid the stored file is removed.
   .post(uploadSingle, validate({ body: schemas.createMediaBody }), mediaController.createMedia);
