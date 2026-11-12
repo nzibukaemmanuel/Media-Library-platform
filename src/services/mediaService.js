@@ -327,6 +327,7 @@ const deleteTag = async (tag) => {
 };
 
 module.exports = {
+  detectMediaType,
   createMedia,
   listMedia,
   getMedia,
