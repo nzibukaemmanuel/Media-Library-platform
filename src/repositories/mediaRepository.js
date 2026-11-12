@@ -36,7 +36,7 @@ const create = async (data) => {
 const SORTABLE_COLUMNS = new Set(['created_at', 'updated_at', 'title', 'file_size']);
 
 // Escape LIKE wildcards so a search for "100%" or "a_b" matches literally
-const escapeLike = (text) => text.replace(/[\\%_]/g, '\\$&');
+const escapeLike = (text) => text.replace(/[\\%_]/g, String.raw`\$&`);
 
 const toArray = (value) => (Array.isArray(value) ? value : [value]);
 
