@@ -233,7 +233,7 @@ describe('Media API endpoints', () => {
       const res = await t.request('GET', '/api/media');
       assertSuccess(res, 200);
       assert.deepEqual(res.body.data.results, []);
-      assert.deepEqual(res.body.data.pagination, { total: 0, page: 1, limit: 20, totalPages: 0 });
+      assert.deepEqual(res.body.data.pagination, { total: 0, page: 1, limit: 10, totalPages: 0 });
     });
 
     it('returns media newest first with pagination info', async () => {
@@ -245,7 +245,7 @@ describe('Media API endpoints', () => {
       assertSuccess(res, 200);
       assert.deepEqual(Object.keys(res.body.data).sort(), ['pagination', 'results']);
       assert.deepEqual(res.body.data.results.map((m) => m.title), ['third', 'second', 'first']);
-      assert.deepEqual(res.body.data.pagination, { total: 3, page: 1, limit: 20, totalPages: 1 });
+      assert.deepEqual(res.body.data.pagination, { total: 3, page: 1, limit: 10, totalPages: 1 });
     });
   });
 
@@ -396,6 +396,135 @@ describe('Media API endpoints', () => {
 
     it('requires a non-empty list of ids', async () => {
       assertError(await t.request('POST', '/api/media/bulk-delete', { ids: [] }), 400, /ids/);
+    });
+  });
+
+  describe('paths and methods from the brief', () => {
+    const png = () => new Blob(['bytes'], { type: 'image/png' });
+    const uploadTo = (path, fields = { title: 'Via /media' }) =>
+      t.uploadForm((f) => {
+        for (const [k, v] of Object.entries(fields)) f.append(k, v);
+        f.append('file', png(), 'a.png');
+      }, path);
+
+    it('serves every endpoint at /media as well as /api/media', async () => {
+      // upload, read, list, update, tags, bulk, delete: all through /media
+      const created = await uploadTo('/media');
+      assertSuccess(created, 201);
+      const id = created.body.data.id;
+      assertSuccess(await t.request('GET', `/media/${id}`), 200);
+      assertSuccess(await t.request('GET', '/media'), 200);
+      assertSuccess(await t.request('PUT', `/media/${id}`, { title: 'Renamed' }), 200);
+      assertSuccess(await t.request('PATCH', `/media/${id}`, { category: 'design' }), 200);
+      assertSuccess(await t.request('POST', `/media/${id}/tags`, { tags: ['x'] }), 200);
+      assertSuccess(await t.request('GET', '/media/tags'), 200);
+      assertSuccess(await t.request('POST', '/media/bulk-update', { ids: [id], description: 'd' }), 200);
+
+      const many = await t.uploadForm((f) => {
+        f.append('files', png(), 'one.png');
+        f.append('files', png(), 'two.png');
+      }, '/media/multiple');
+      assertSuccess(many, 201);
+      assert.equal(many.body.data.results.length, 2);
+
+      assertSuccess(await t.request('DELETE', `/media/${id}`), 200);
+      assertSuccess(await t.request('POST', '/media/bulk-delete', { ids: many.body.data.results.map((m) => m.id) }), 200);
+    });
+
+    it('shows the same data under both prefixes', async () => {
+      const created = await uploadTo('/media');
+      const a = await t.request('GET', `/media/${created.body.data.id}`);
+      const b = await t.request('GET', `/api/media/${created.body.data.id}`);
+      assert.deepEqual(a.body, b.body);
+      assert.deepEqual((await t.request('GET', '/media')).body, (await t.request('GET', '/api/media')).body);
+    });
+
+    it('keeps the health check at /api/health', async () => {
+      assertSuccess(await t.request('GET', '/api/health'), 200);
+    });
+
+    describe('PUT /media/:id', () => {
+      it('updates the metadata and returns the item, like PATCH', async () => {
+        const media = (await uploadTo('/media')).body.data;
+        const res = await t.request('PUT', `/media/${media.id}`, { title: 'Updated by PUT', category: 'reports', tags: ['a', 'b'] });
+        assertSuccess(res, 200);
+        assert.equal(res.body.data.title, 'Updated by PUT');
+        assert.equal(res.body.data.category, 'reports');
+        assert.deepEqual(res.body.data.tags, ['a', 'b']);
+        assert.equal(res.body.data.filePath, media.filePath, 'the stored file is untouched');
+        assert.equal((await t.request('GET', `/media/${media.id}`)).body.data.title, 'Updated by PUT');
+      });
+
+      it('changes only the fields that are sent', async () => {
+        const media = (await uploadTo('/media', { title: 'Keep me', description: 'Keep this too' })).body.data;
+        const res = await t.request('PUT', `/media/${media.id}`, { category: 'design' });
+        assert.equal(res.body.data.title, 'Keep me');
+        assert.equal(res.body.data.description, 'Keep this too');
+        assert.equal(res.body.data.category, 'design');
+      });
+
+      it('validates like PATCH', async () => {
+        const media = (await uploadTo('/media')).body.data;
+        assertError(await t.request('PUT', `/media/${media.id}`, {}), 400, /at least one field/);
+        assertError(await t.request('PUT', `/media/${media.id}`, { title: '' }), 400, /title/);
+        assertError(await t.request('PUT', `/media/${media.id}`, { category: 'nope' }), 400, /category must be one of/);
+        assertError(await t.request('PUT', `/media/${media.id}`, { filePath: '/etc/passwd' }), 400, /filePath is not allowed/);
+        assertError(await t.request('PUT', '/media/abc', { title: 'x' }), 400, /id must be a number/);
+      });
+
+      it('answers 404 for a missing item', async () => {
+        assertError(await t.request('PUT', '/media/999999', { title: 'x' }), 404, /Media not found/);
+      });
+    });
+
+    describe('the "order" query parameter', () => {
+      beforeEach(async () => {
+        for (const title of ['banana', 'apple', 'cherry']) await createMedia({ fields: { title } });
+      });
+
+      it('sorts ascending and descending', async () => {
+        const asc = await t.request('GET', '/media?sortBy=title&order=asc');
+        assert.deepEqual(asc.body.data.results.map((m) => m.title), ['apple', 'banana', 'cherry']);
+        const desc = await t.request('GET', '/media?sortBy=title&order=desc');
+        assert.deepEqual(desc.body.data.results.map((m) => m.title), ['cherry', 'banana', 'apple']);
+      });
+
+      it('is case-insensitive and defaults to newest first', async () => {
+        const upper = await t.request('GET', '/media?sortBy=title&order=ASC');
+        assert.deepEqual(upper.body.data.results.map((m) => m.title), ['apple', 'banana', 'cherry']);
+        const none = await t.request('GET', '/media');
+        assert.deepEqual(none.body.data.results.map((m) => m.title), ['cherry', 'apple', 'banana']);
+      });
+
+      it('rejects an invalid value', async () => {
+        const res = await t.request('GET', '/media?order=sideways');
+        assertError(res, 400, /order must be one of/);
+        assert.ok(res.body.details.some((d) => d.field === 'order'));
+      });
+
+      it('no longer accepts the old name sortOrder', async () => {
+        const res = await t.request('GET', '/media?sortOrder=asc');
+        assertError(res, 400, /sortOrder is not allowed/);
+      });
+    });
+
+    it('accepts the brief\'s example query: page, limit, category, tags, search, sortBy and order', async () => {
+      await createMedia({ fields: { title: 'Sunset beach', category: 'design', tags: 'nature' } });
+      await createMedia({ fields: { title: 'Sunset city', category: 'design', tags: 'urban' } });
+      await createMedia({ fields: { title: 'Annual report', category: 'reports', tags: 'nature' } });
+      const res = await t.request('GET', '/media?page=1&limit=10&category=design&tags=nature&search=sunset&sortBy=title&order=asc');
+      assertSuccess(res, 200);
+      assert.deepEqual(res.body.data.results.map((m) => m.title), ['Sunset beach']);
+      assert.deepEqual(res.body.data.pagination, { total: 1, page: 1, limit: 10, totalPages: 1 });
+    });
+
+    it('defaults to 10 results per page and allows at most 50', async () => {
+      for (let i = 0; i < 12; i++) await t.seed([{ title: `Row ${i}` }]);
+      const byDefault = (await t.request('GET', '/media')).body.data;
+      assert.equal(byDefault.results.length, 10);
+      assert.deepEqual(byDefault.pagination, { total: 12, page: 1, limit: 10, totalPages: 2 });
+      assert.equal((await t.request('GET', '/media?limit=50')).body.data.results.length, 12);
+      assertError(await t.request('GET', '/media?limit=51'), 400, /limit must be less than or equal to 50/);
     });
   });
 });

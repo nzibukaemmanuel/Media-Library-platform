@@ -345,13 +345,13 @@ describe('Global error handling and API responses', () => {
     it('returns a list as data.results with data.pagination, even when empty', async () => {
       const empty = await raw('GET', '/api/media');
       assertSuccessEnvelope(empty, 200);
-      assert.deepEqual(empty.json.data, { results: [], pagination: { total: 0, page: 1, limit: 20, totalPages: 0 } });
+      assert.deepEqual(empty.json.data, { results: [], pagination: { total: 0, page: 1, limit: 10, totalPages: 0 } });
 
       await t.upload();
       const list = await raw('GET', '/api/media');
       assert.deepEqual(Object.keys(list.json.data).sort(), ['pagination', 'results']);
       assert.equal(list.json.data.results.length, 1);
-      assert.deepEqual(list.json.data.pagination, { total: 1, page: 1, limit: 20, totalPages: 1 });
+      assert.deepEqual(list.json.data.pagination, { total: 1, page: 1, limit: 10, totalPages: 1 });
     });
 
     it('never puts count, total, pagination, meta or message at the top level', async () => {

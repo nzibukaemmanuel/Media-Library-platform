@@ -218,7 +218,7 @@ const listMedia = async (query = {}) => {
   // Sorting and paging are sanitised again by the repository
   Object.assign(filters, {
     sortBy: query.sortBy,
-    sortOrder: query.sortOrder,
+    sortOrder: query.order, // the query parameter is "order"; the repository calls it sortOrder
     page: query.page,
     limit: query.limit,
     offset: query.offset,

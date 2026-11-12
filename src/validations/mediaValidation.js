@@ -212,7 +212,7 @@ const listMediaFields = {
 
   // sorting
   sortBy: Joi.string().valid(...SORT_FIELDS),
-  sortOrder: Joi.string().lowercase().valid(...SORT_ORDERS),
+  order: Joi.string().lowercase().valid(...SORT_ORDERS),
 
   // pagination: page + limit, or limit + offset
   page: Joi.number().integer().min(1),

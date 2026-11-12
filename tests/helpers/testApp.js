@@ -85,10 +85,10 @@ const startTestApp = async () => {
 
   // Send a hand-built multipart form (for edge cases: several files, a wrong
   // field name, repeated fields...). `build` receives an empty FormData.
-  const uploadForm = async (build) => {
+  const uploadForm = async (build, path = '/api/media') => {
     const form = new FormData();
     build(form);
-    const res = await fetch(`${base}/api/media`, { method: 'POST', body: form });
+    const res = await fetch(`${base}${path}`, { method: 'POST', body: form });
     return { status: res.status, body: await res.json() };
   };
 

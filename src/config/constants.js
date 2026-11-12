@@ -48,8 +48,8 @@ const MAX_TAGS = 20;
 const MAX_TAG_LENGTH = 50;
 
 // Pagination
-const DEFAULT_LIMIT = 20;
-const MAX_LIMIT = 100;
+const DEFAULT_LIMIT = 10;
+const MAX_LIMIT = 50;
 
 // Most assets one bulk request may touch
 const MAX_BULK = 100;

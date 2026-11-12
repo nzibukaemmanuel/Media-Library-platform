@@ -58,6 +58,13 @@ router
 router
   .route('/:id')
   .get(validate({ params: schemas.idParams }), mediaController.getMedia)
+  // PUT and PATCH both update the metadata fields that are sent (a partial
+  // update): the stored file can never be replaced, so there is nothing a
+  // full replacement would add
+  .put(
+    validate({ params: schemas.idParams, body: schemas.updateMediaBody }),
+    mediaController.updateMedia
+  )
   .patch(
     validate({ params: schemas.idParams, body: schemas.updateMediaBody }),
     mediaController.updateMedia

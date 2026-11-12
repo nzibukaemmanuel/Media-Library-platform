@@ -78,7 +78,7 @@ describe('POST /api/media/multiple (several files in one request)', () => {
       // and they are really saved
       assert.deepEqual(t.filesOnDisk().sort(), results.map((m) => m.fileName).sort());
       assert.equal(await t.rowCount(), 3);
-      const list = (await t.request('GET', '/api/media?sortBy=title&sortOrder=asc')).body.data.results;
+      const list = (await t.request('GET', '/api/media?sortBy=title&order=asc')).body.data.results;
       assert.deepEqual(list.map((m) => m.title), ['photo', 'picture', 'report']);
     });
 
