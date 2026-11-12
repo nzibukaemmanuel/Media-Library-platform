@@ -33,7 +33,29 @@ const create = async (data) => {
 
 // Columns results can be sorted by (whitelist: the column name is placed
 // into the SQL text, so it must never come straight from user input)
-const SORTABLE_COLUMNS = new Set(['created_at', 'updated_at', 'title', 'file_size']);
+const SORTABLE_COLUMNS = new Set([
+  'created_at',
+  'updated_at',
+  'title',
+  'file_size',
+  'media_type',
+  'original_name',
+]);
+
+const DEFAULT_LIMIT = 20;
+const MAX_LIMIT = 100;
+
+// Parse a positive integer, falling back to a default for missing/invalid input
+const toPositiveInt = (value, fallback) => {
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+};
+
+// Parse a non-negative integer (0 is allowed), falling back to 0
+const toOffset = (value) => {
+  const n = Number.parseInt(value, 10);
+  return Number.isFinite(n) && n > 0 ? n : 0;
+};
 
 // Escape LIKE wildcards so a search for "100%" or "a_b" matches literally
 const escapeLike = (text) => text.replace(/[\\%_]/g, String.raw`\$&`);
@@ -87,22 +109,39 @@ const buildWhere = (filters) => {
   };
 };
 
-// Search and filter media assets with sorting and pagination.
-// All filters are optional and combine with AND (see buildWhere for the list).
+// Search, filter, sort and paginate media assets.
+// Filters are optional and combine with AND (see buildWhere for the list).
+//
 // Sorting: sortBy (one of SORTABLE_COLUMNS, default created_at) and
-// sortOrder ('asc' | 'desc', default desc); id breaks ties for stable paging.
-// Returns { items, total } where total ignores limit/offset.
+// sortOrder ('asc' | 'desc', default desc). id breaks ties so pages never
+// overlap or skip rows when many rows share the same sort value.
+//
+// Pagination: either page (1-based) + limit, or limit + offset.
+// limit defaults to DEFAULT_LIMIT and is capped at MAX_LIMIT; invalid
+// values fall back to the defaults. If page is given it wins over offset.
+//
+// Returns { items, total, pagination } where total is the number of rows
+// matching the filters (ignoring paging) and pagination is
+// { page, limit, total, totalPages, hasNext, hasPrev }.
 const findAll = async (filters = {}) => {
-  const { sortBy, sortOrder, limit = 20, offset = 0 } = filters;
+  const { sortBy, sortOrder } = filters;
   const { where, values } = buildWhere(filters);
 
   const column = SORTABLE_COLUMNS.has(sortBy) ? sortBy : 'created_at';
   const direction = String(sortOrder).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
+  const limit = Math.min(toPositiveInt(filters.limit, DEFAULT_LIMIT), MAX_LIMIT);
+  const usePage = filters.page !== undefined;
+  const page = usePage
+    ? toPositiveInt(filters.page, 1)
+    : Math.floor(toOffset(filters.offset) / limit) + 1;
+  const offset = usePage ? (page - 1) * limit : toOffset(filters.offset);
+
   const countResult = await pool.query(
     `SELECT COUNT(*)::int AS total FROM media_assets ${where}`,
     values
   );
+  const total = countResult.rows[0].total;
 
   const { rows } = await pool.query(
     `SELECT * FROM media_assets ${where}
@@ -111,7 +150,20 @@ const findAll = async (filters = {}) => {
     [...values, limit, offset]
   );
 
-  return { items: rows, total: countResult.rows[0].total };
+  const totalPages = Math.ceil(total / limit);
+
+  return {
+    items: rows,
+    total,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages,
+      hasNext: page < totalPages,
+      hasPrev: page > 1,
+    },
+  };
 };
 
 // All distinct tags with how many assets use each, most used first.
