@@ -1,8 +1,8 @@
-const fs = require('node:fs/promises');
 const path = require('node:path');
 
 const mediaRepository = require('../repositories/mediaRepository');
 const AppError = require('../utils/AppError');
+const { deleteFile } = require('../utils/fileStorage');
 
 const MEDIA_TYPES = ['image', 'video', 'audio', 'document'];
 
@@ -91,19 +91,6 @@ const cleanText = (value, field, { required = false, max } = {}) => {
   return text;
 };
 
-// Delete a stored file; a missing file is fine, other failures are logged
-// (the database row is the source of truth, so we do not fail the request)
-const removeFile = async (filePath) => {
-  if (!filePath) return;
-  try {
-    await fs.unlink(filePath);
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      console.error(`Could not delete file ${filePath}: ${error.message}`);
-    }
-  }
-};
-
 // Metadata fields a client may set when describing an asset
 const parseMetadata = (body) => ({
   title: cleanText(body.title, 'title', { max: MAX_TITLE_LENGTH }),
@@ -146,7 +133,7 @@ const createMedia = async (file, body = {}) => {
       file_size: file.size,
     });
   } catch (error) {
-    await removeFile(file.path);
+    await deleteFile(file.path);
     throw error;
   }
 };
@@ -224,12 +211,43 @@ const updateMedia = async (id, body = {}) => {
   return media;
 };
 
-// Delete the record, then its file on disk. Returns the deleted record.
+// Delete the record first, then its file on disk. The database row is the
+// source of truth, so a file that cannot be removed (already gone, locked,
+// or outside the upload folder) never fails the request; it is logged and
+// reported as fileDeleted: false instead. Returns { media, fileDeleted }.
 const deleteMedia = async (id) => {
   const media = await mediaRepository.remove(parseId(id));
   if (!media) throw new AppError('Media not found', 404);
-  await removeFile(media.file_path);
-  return media;
+  const result = await deleteFile(media.file_path);
+  return { media, fileDeleted: result.deleted };
+};
+
+// Delete up to MAX_BULK assets and their files.
+// Returns { deleted: [records], notFound: [ids], filesNotDeleted: [ids] }
+// where filesNotDeleted lists assets whose record was removed but whose
+// file could not be (so it can be cleaned up manually).
+const bulkDeleteMedia = async (ids) => {
+  if (!Array.isArray(ids) || ids.length === 0) {
+    throw new AppError('Provide a non-empty array of media ids', 400);
+  }
+  if (ids.length > MAX_BULK) {
+    throw new AppError(`You can delete at most ${MAX_BULK} assets at once`, 400);
+  }
+  const mediaIds = [...new Set(ids.map(parseId))];
+
+  const deleted = await mediaRepository.removeMany(mediaIds);
+
+  const results = await Promise.all(deleted.map((media) => deleteFile(media.file_path)));
+  const filesNotDeleted = deleted
+    .filter((_, index) => !results[index].deleted)
+    .map((media) => media.id);
+
+  const found = new Set(deleted.map((m) => m.id));
+  return {
+    deleted,
+    notFound: mediaIds.filter((id) => !found.has(id)),
+    filesNotDeleted,
+  };
 };
 
 const listTags = () => mediaRepository.getTags();
@@ -314,6 +332,7 @@ module.exports = {
   getMedia,
   updateMedia,
   deleteMedia,
+  bulkDeleteMedia,
   listTags,
   addTags,
   removeTags,
