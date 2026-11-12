@@ -360,7 +360,7 @@ describe('Global error handling and API responses', () => {
 
     it('says when a record was deleted but its file could not be removed', async () => {
       const media = (await t.upload()).body.data;
-      require('node:fs').rmSync(media.file_path);
+      require('node:fs').rmSync(media.filePath);
       const res = await raw('DELETE', `/api/media/${media.id}`);
       assertSuccessEnvelope(res, 200);
       assert.deepEqual(res.json.data, { id: media.id, fileDeleted: false });

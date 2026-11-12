@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 
 // Must be required before anything from src/ (sets the test database)
 const { startTestApp } = require('./helpers/testApp');
+const Media = require('../src/models/Media');
 
 const DAY = 86400000;
 const BASE = Date.UTC(2025, 0, 1);
@@ -13,6 +14,7 @@ const MIME = {
   video: () => 'video/mp4',
   audio: () => 'audio/mpeg',
 };
+const CATEGORY = ['general', 'marketing', 'design']; // index = i % 3
 const pad = (n) => String(n).padStart(2, '0');
 
 // 24 rows with known, varied values. Item i is created i days after BASE, so
@@ -27,6 +29,7 @@ const buildRows = () =>
     const row = {
       title: `Item ${pad(i)}`,
       description: null,
+      category: CATEGORY[i % 3],
       media_type: type,
       mime_type: MIME[type](i),
       file_size: i * 100,
@@ -53,9 +56,10 @@ describe('Pagination, filtering, sorting and search', () => {
   before(async () => {
     t = await startTestApp();
     await t.reset();
-    // Postgres returns bigint columns (file_size) as strings; the expected
-    // values below are computed with numbers
-    rows = (await t.seed(buildRows())).map((r) => ({ ...r, file_size: Number(r.file_size) }));
+    // Convert the raw database rows to the API shape (camelCase, numeric
+    // fileSize), so the expected values are computed in the same terms as the
+    // responses they are compared with
+    rows = (await t.seed(buildRows())).map(Media.fromRow);
   });
   after(async () => {
     await t.stop();
@@ -85,8 +89,8 @@ describe('Pagination, filtering, sorting and search', () => {
   const sortedIds = (list_) => [...list_].sort((a, b) => a - b);
   // Reference model: ids of the rows matching a predicate, newest first
   const expected = (predicate = () => true) =>
-    rows.filter(predicate).sort((a, b) => b.created_at - a.created_at).map((r) => r.id);
-  const iso = (row) => encodeURIComponent(row.created_at.toISOString());
+    rows.filter(predicate).sort((a, b) => b.createdAt - a.createdAt).map((r) => r.id);
+  const iso = (row) => encodeURIComponent(row.createdAt.toISOString());
   const rowByTitle = (title) => rows.find((r) => r.title === title);
 
   describe('pagination', () => {
@@ -138,7 +142,7 @@ describe('Pagination, filtering, sorting and search', () => {
 
     it('reports the total of the filtered result, not of the whole table', async () => {
       const body = await ok('mediaType=image&limit=2');
-      const images = expected((r) => r.media_type === 'image');
+      const images = expected((r) => r.mediaType === 'image');
       assert.equal(body.meta.pagination.total, images.length);
       assert.equal(body.meta.pagination.totalPages, Math.ceil(images.length / 2));
     });
@@ -200,10 +204,10 @@ describe('Pagination, filtering, sorting and search', () => {
     });
 
     it('sorts by file size in both directions', async () => {
-      const asc = await ok('limit=100&sortBy=file_size&sortOrder=asc');
-      assert.deepEqual(asc.data.map((m) => Number(m.file_size)), rows.map((r) => r.file_size)); // 100..2400
-      const desc = await ok('limit=100&sortBy=file_size&sortOrder=desc');
-      assert.deepEqual(desc.data.map((m) => Number(m.file_size)), rows.map((r) => r.file_size).reverse());
+      const asc = await ok('limit=100&sortBy=fileSize&sortOrder=asc');
+      assert.deepEqual(asc.data.map((m) => Number(m.fileSize)), rows.map((r) => r.fileSize)); // 100..2400
+      const desc = await ok('limit=100&sortBy=fileSize&sortOrder=desc');
+      assert.deepEqual(desc.data.map((m) => Number(m.fileSize)), rows.map((r) => r.fileSize).reverse());
     });
 
     it('sorts by title', async () => {
@@ -213,42 +217,42 @@ describe('Pagination, filtering, sorting and search', () => {
     });
 
     it('sorts by the other allowed columns', async () => {
-      for (const column of ['created_at', 'updated_at', 'media_type', 'original_name', 'title', 'file_size']) {
+      for (const column of ['createdAt', 'updatedAt', 'mediaType', 'originalName', 'title', 'fileSize', 'category']) {
         const body = await ok(`limit=100&sortBy=${column}`);
         assert.equal(body.data.length, 24, column);
       }
     });
 
     it('breaks ties by id, so paging through equal values never repeats or skips a row', async () => {
-      // 6 rows per media type: sorting by media_type is full of ties.
+      // 6 rows per media type: sorting by mediaType is full of ties.
       // (A stricter version, with rows stored in scrambled order, is at the
       // end of this file.)
       const seen = [];
-      for (let page = 1; page <= 6; page++) seen.push(...ids(await ok(`sortBy=media_type&limit=4&page=${page}`)));
+      for (let page = 1; page <= 6; page++) seen.push(...ids(await ok(`sortBy=mediaType&limit=4&page=${page}`)));
       assert.equal(seen.length, 24);
       assert.deepEqual(sortedIds(seen), sortedIds(rows.map((r) => r.id)), 'every row exactly once');
 
       // within a group of equal values the order is by id, in the sort direction
-      const asc = (await ok('limit=100&sortBy=media_type&sortOrder=asc')).data;
+      const asc = (await ok('limit=100&sortBy=mediaType&sortOrder=asc')).data;
       for (let n = 1; n < asc.length; n++) {
-        if (asc[n].media_type === asc[n - 1].media_type) assert.ok(asc[n].id > asc[n - 1].id, 'asc ties ascend by id');
+        if (asc[n].mediaType === asc[n - 1].mediaType) assert.ok(asc[n].id > asc[n - 1].id, 'asc ties ascend by id');
       }
-      const desc = (await ok('limit=100&sortBy=media_type&sortOrder=desc')).data;
+      const desc = (await ok('limit=100&sortBy=mediaType&sortOrder=desc')).data;
       for (let n = 1; n < desc.length; n++) {
-        if (desc[n].media_type === desc[n - 1].media_type) assert.ok(desc[n].id < desc[n - 1].id, 'desc ties descend by id');
+        if (desc[n].mediaType === desc[n - 1].mediaType) assert.ok(desc[n].id < desc[n - 1].id, 'desc ties descend by id');
       }
     });
 
     it('sorts the filtered result, not the whole table', async () => {
-      const body = await ok('tag=odd&limit=100&sortBy=file_size&sortOrder=desc');
-      const odd = rows.filter((r) => r.tags.includes('odd')).map((r) => r.file_size).sort((a, b) => b - a);
-      assert.deepEqual(body.data.map((m) => Number(m.file_size)), odd);
+      const body = await ok('tag=odd&limit=100&sortBy=fileSize&sortOrder=desc');
+      const odd = rows.filter((r) => r.tags.includes('odd')).map((r) => r.fileSize).sort((a, b) => b - a);
+      assert.deepEqual(body.data.map((m) => Number(m.fileSize)), odd);
     });
 
     for (const [label, query] of [
       ['an unknown column', 'sortBy=password'],
-      ['a column that exists but is not sortable', 'sortBy=file_path'],
-      ['a camelCase column name', 'sortBy=createdAt'],
+      ['a column that exists but is not sortable', 'sortBy=filePath'],
+      ['a database column name', 'sortBy=created_at'],
       ['a SQL injection attempt', `sortBy=${encodeURIComponent('title; DROP TABLE media_assets; --')}`],
       ['a SQL expression', `sortBy=${encodeURIComponent('(SELECT 1)')}`],
     ]) {
@@ -270,12 +274,12 @@ describe('Pagination, filtering, sorting and search', () => {
   describe('filtering', () => {
     it('filters by one media type', async () => {
       const body = await ok('mediaType=image&limit=100');
-      assert.deepEqual(ids(body), expected((r) => r.media_type === 'image'));
-      assert.ok(body.data.every((m) => m.media_type === 'image'));
+      assert.deepEqual(ids(body), expected((r) => r.mediaType === 'image'));
+      assert.ok(body.data.every((m) => m.mediaType === 'image'));
     });
 
     it('filters by several media types, as a comma list or a repeated parameter', async () => {
-      const want = expected((r) => ['image', 'video'].includes(r.media_type));
+      const want = expected((r) => ['image', 'video'].includes(r.mediaType));
       assert.deepEqual(ids(await ok('mediaType=image,video&limit=100')), want);
       assert.deepEqual(ids(await ok('mediaType=image&mediaType=video&limit=100')), want);
       assert.deepEqual(ids(await ok('mediaType=Image,%20VIDEO&limit=100')), want); // case and spaces
@@ -288,7 +292,7 @@ describe('Pagination, filtering, sorting and search', () => {
     });
 
     it('filters by exact MIME type, ignoring case', async () => {
-      const want = expected((r) => r.mime_type === 'image/jpeg');
+      const want = expected((r) => r.mimeType === 'image/jpeg');
       assert.ok(want.length > 0);
       assert.deepEqual(ids(await ok('mimeType=image/jpeg&limit=100')), want);
       assert.deepEqual(ids(await ok('mimeType=IMAGE/JPEG&limit=100')), want);
@@ -297,6 +301,34 @@ describe('Pagination, filtering, sorting and search', () => {
     it('rejects a malformed MIME type', async () => {
       await rejected('mimeType=jpeg', 'mimeType');
       await rejected('mimeType=a/b/c', 'mimeType');
+    });
+
+    it('filters by category, ignoring case', async () => {
+      for (const category of ['general', 'marketing', 'design']) {
+        const want = expected((r) => r.category === category);
+        assert.ok(want.length > 0, category);
+        const body = await ok(`category=${category}&limit=100`);
+        assert.deepEqual(ids(body), want);
+        assert.ok(body.data.every((m) => m.category === category));
+      }
+      assert.deepEqual(ids(await ok('category=MARKETING&limit=100')), expected((r) => r.category === 'marketing'));
+    });
+
+    it('returns nothing for a valid category that no item has', async () => {
+      const body = await ok('category=reports');
+      assert.deepEqual(body.data, []);
+      assert.equal(body.meta.pagination.total, 0);
+    });
+
+    it('rejects an unknown category', async () => {
+      const body = await rejected('category=videos', 'category');
+      assert.match(JSON.stringify(body.errors), /category must be one of: general, marketing, design, documentation, reports, other/);
+    });
+
+    it('combines category with other filters', async () => {
+      const want = expected((r) => r.category === 'design' && r.tags.includes('odd') && r.fileSize >= 500);
+      assert.ok(want.length > 0);
+      assert.deepEqual(ids(await ok('category=design&tag=odd&minSize=500&limit=100')), want);
     });
 
     it('filters by a single tag', async () => {
@@ -334,15 +366,15 @@ describe('Pagination, filtering, sorting and search', () => {
     });
 
     it('filters by size range, inclusive at both ends', async () => {
-      const want = expected((r) => r.file_size >= 500 && r.file_size <= 900);
+      const want = expected((r) => r.fileSize >= 500 && r.fileSize <= 900);
       assert.equal(want.length, 5);
       assert.deepEqual(ids(await ok('minSize=500&maxSize=900&limit=100')), want);
-      assert.deepEqual(ids(await ok('minSize=500&maxSize=500')), expected((r) => r.file_size === 500));
+      assert.deepEqual(ids(await ok('minSize=500&maxSize=500')), expected((r) => r.fileSize === 500));
     });
 
     it('accepts minSize or maxSize on their own', async () => {
-      assert.deepEqual(ids(await ok('minSize=2200&limit=100')), expected((r) => r.file_size >= 2200));
-      assert.deepEqual(ids(await ok('maxSize=250&limit=100')), expected((r) => r.file_size <= 250));
+      assert.deepEqual(ids(await ok('minSize=2200&limit=100')), expected((r) => r.fileSize >= 2200));
+      assert.deepEqual(ids(await ok('maxSize=250&limit=100')), expected((r) => r.fileSize <= 250));
     });
 
     it('rejects invalid size filters', async () => {
@@ -356,15 +388,15 @@ describe('Pagination, filtering, sorting and search', () => {
     it('filters by creation date range, inclusive at both ends', async () => {
       const from = rows[9]; // Item 10
       const to = rows[13]; // Item 14
-      const want = expected((r) => r.created_at >= from.created_at && r.created_at <= to.created_at);
+      const want = expected((r) => r.createdAt >= from.createdAt && r.createdAt <= to.createdAt);
       assert.equal(want.length, 5);
       assert.deepEqual(ids(await ok(`createdFrom=${iso(from)}&createdTo=${iso(to)}&limit=100`)), want);
     });
 
     it('accepts createdFrom or createdTo on their own, and plain dates', async () => {
       const cut = rows[19]; // Item 20
-      assert.deepEqual(ids(await ok(`createdFrom=${iso(cut)}&limit=100`)), expected((r) => r.created_at >= cut.created_at));
-      assert.deepEqual(ids(await ok(`createdTo=${iso(cut)}&limit=100`)), expected((r) => r.created_at <= cut.created_at));
+      assert.deepEqual(ids(await ok(`createdFrom=${iso(cut)}&limit=100`)), expected((r) => r.createdAt >= cut.createdAt));
+      assert.deepEqual(ids(await ok(`createdTo=${iso(cut)}&limit=100`)), expected((r) => r.createdAt <= cut.createdAt));
       // plain date: midnight UTC on 2025-01-11 is exactly Item 10
       assert.deepEqual(ids(await ok('createdFrom=2025-01-11&createdTo=2025-01-11')), [rows[9].id]);
     });
@@ -378,7 +410,7 @@ describe('Pagination, filtering, sorting and search', () => {
 
     it('combines every filter with AND', async () => {
       const want = expected(
-        (r) => r.media_type === 'image' && r.tags.includes('odd') && r.file_size >= 500 && r.file_size <= 2000 && r.created_at >= new Date(BASE + 3 * DAY)
+        (r) => r.mediaType === 'image' && r.tags.includes('odd') && r.fileSize >= 500 && r.fileSize <= 2000 && r.createdAt >= new Date(BASE + 3 * DAY)
       );
       assert.ok(want.length > 0, 'the combination must match something to be a meaningful test');
       const query = `mediaType=image&tag=odd&minSize=500&maxSize=2000&createdFrom=${encodeURIComponent(new Date(BASE + 3 * DAY).toISOString())}&limit=100`;
@@ -386,14 +418,14 @@ describe('Pagination, filtering, sorting and search', () => {
     });
 
     it('combines filters with sorting and paging', async () => {
-      const matching = rows.filter((r) => r.tags.includes('odd')).sort((a, b) => a.file_size - b.file_size);
-      const body = await ok('tag=odd&sortBy=file_size&sortOrder=asc&limit=5&page=2');
+      const matching = rows.filter((r) => r.tags.includes('odd')).sort((a, b) => a.fileSize - b.fileSize);
+      const body = await ok('tag=odd&sortBy=fileSize&sortOrder=asc&limit=5&page=2');
       assert.deepEqual(ids(body), matching.slice(5, 10).map((r) => r.id));
       assert.equal(body.meta.pagination.total, matching.length);
     });
 
     it('ignores empty filter values', async () => {
-      const query = 'search=&mediaType=&mimeType=&tag=&tags=&anyTags=&minSize=&maxSize=&createdFrom=&createdTo=&sortBy=&sortOrder=&page=&limit=';
+      const query = 'search=&category=&mediaType=&mimeType=&tag=&tags=&anyTags=&minSize=&maxSize=&createdFrom=&createdTo=&sortBy=&sortOrder=&page=&limit=';
       assert.equal((await ok(query)).meta.pagination.total, 24);
     });
 
@@ -486,8 +518,8 @@ describe('Pagination, filtering, sorting and search', () => {
     });
 
     it('combines search with filters, sorting and paging', async () => {
-      const matching = rows.filter((r) => /item/i.test(r.title) && r.media_type === 'video').sort((a, b) => a.file_size - b.file_size);
-      const body = await ok('search=item&mediaType=video&sortBy=file_size&sortOrder=asc&limit=2&page=2');
+      const matching = rows.filter((r) => /item/i.test(r.title) && r.mediaType === 'video').sort((a, b) => a.fileSize - b.fileSize);
+      const body = await ok('search=item&mediaType=video&sortBy=fileSize&sortOrder=asc&limit=2&page=2');
       assert.deepEqual(ids(body), matching.slice(2, 4).map((r) => r.id));
       assert.equal(body.meta.pagination.total, matching.length);
     });
@@ -511,15 +543,15 @@ describe('Pagination, filtering, sorting and search', () => {
     const byId = (dir) => Array.from({ length: 24 }, (_, k) => (dir === 'asc' ? k + 1 : 24 - k));
 
     it('orders equal values by id in the direction of the sort', async () => {
-      // every row has the same media_type and file_size, so only the tie-breaker decides
-      assert.deepEqual(await listed('sortBy=media_type&sortOrder=asc'), byId('asc'));
-      assert.deepEqual(await listed('sortBy=media_type&sortOrder=desc'), byId('desc'));
-      assert.deepEqual(await listed('sortBy=file_size&sortOrder=asc'), byId('asc'));
-      assert.deepEqual(await listed('sortBy=file_size&sortOrder=desc'), byId('desc'));
+      // every row has the same mediaType and fileSize, so only the tie-breaker decides
+      assert.deepEqual(await listed('sortBy=mediaType&sortOrder=asc'), byId('asc'));
+      assert.deepEqual(await listed('sortBy=mediaType&sortOrder=desc'), byId('desc'));
+      assert.deepEqual(await listed('sortBy=fileSize&sortOrder=asc'), byId('asc'));
+      assert.deepEqual(await listed('sortBy=fileSize&sortOrder=desc'), byId('desc'));
     });
 
     it('pages through equal values without repeating or skipping a row', async () => {
-      for (const sort of ['sortBy=file_size&sortOrder=asc', 'sortBy=file_size&sortOrder=desc']) {
+      for (const sort of ['sortBy=fileSize&sortOrder=asc', 'sortBy=fileSize&sortOrder=desc']) {
         const seen = [];
         for (let page = 1; page <= 5; page++) seen.push(...ids(await ok(`${sort}&limit=5&page=${page}`)));
         assert.deepEqual(seen, sort.includes('asc') ? byId('asc') : byId('desc'), sort);

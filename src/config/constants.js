@@ -4,15 +4,22 @@
 // Kinds of media (must match the media_type enum in database/schema.sql)
 const MEDIA_TYPES = ['image', 'video', 'audio', 'document'];
 
-// Columns results can be sorted by. The repository puts the column name into
-// the SQL text, so only these exact values may ever be used.
-const SORTABLE_COLUMNS = [
-  'created_at',
-  'updated_at',
+// Categories a media item can belong to (must match the media_category enum
+// in database/schema.sql). A new item is "general" unless it says otherwise.
+const CATEGORIES = ['general', 'marketing', 'design', 'documentation', 'reports', 'other'];
+const DEFAULT_CATEGORY = 'general';
+
+// Fields results can be sorted by (API field names, see models/Media.js). The
+// repository turns them into column names for the SQL text, so only these
+// exact values may ever be used.
+const SORT_FIELDS = [
+  'createdAt',
+  'updatedAt',
   'title',
-  'file_size',
-  'media_type',
-  'original_name',
+  'fileSize',
+  'mediaType',
+  'originalName',
+  'category',
 ];
 
 // File extensions accepted for each kind of media. Uploads are checked against
@@ -44,7 +51,9 @@ const MAX_BULK = 100;
 
 module.exports = {
   MEDIA_TYPES,
-  SORTABLE_COLUMNS,
+  CATEGORIES,
+  DEFAULT_CATEGORY,
+  SORT_FIELDS,
   ALLOWED_EXTENSIONS,
   SORT_ORDERS,
   MAX_TITLE_LENGTH,

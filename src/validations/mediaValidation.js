@@ -2,7 +2,8 @@ const Joi = require('joi');
 
 const {
   MEDIA_TYPES,
-  SORTABLE_COLUMNS,
+  CATEGORIES,
+  SORT_FIELDS,
   SORT_ORDERS,
   MAX_TITLE_LENGTH,
   MAX_DESCRIPTION_LENGTH,
@@ -75,9 +76,17 @@ const mediaTypeValue = Joi.string()
 
 // ---------- descriptive metadata (shared by create / update / bulk update) ----------
 
+// A category must be one of the known ones; case does not matter
+const category = Joi.string()
+  .trim()
+  .lowercase()
+  .valid(...CATEGORIES)
+  .messages({ 'any.only': `category must be one of: ${CATEGORIES.join(', ')}` });
+
 const metadataFields = {
   title: Joi.string().trim().min(1).max(MAX_TITLE_LENGTH),
   description: Joi.string().trim().allow('').max(MAX_DESCRIPTION_LENGTH),
+  category,
   tags: tagList,
   width: Joi.number().integer().positive(),
   height: Joi.number().integer().positive(),
@@ -87,8 +96,12 @@ const metadataFields = {
 // ---------- request schemas ----------
 
 // POST /media: the file itself is validated by the upload middleware; these
-// are the optional form fields sent alongside it.
-const createMediaBody = Joi.object(metadataFields);
+// are the form fields sent alongside it. The title is required; everything
+// else is optional (category defaults to "general", tags to none).
+const createMediaBody = Joi.object({
+  ...metadataFields,
+  title: metadataFields.title.required(),
+});
 
 // PATCH /media/:id: at least one field must be provided
 const updateMediaBody = Joi.object(metadataFields)
@@ -144,6 +157,7 @@ const tagParams = Joi.object({ tag: singleTag.required() });
 // GET /media: search, filter, sort and pagination
 const listMediaFields = {
   // filters
+  category,
   search: Joi.string().trim().min(1).max(MAX_TITLE_LENGTH),
   mediaType: Joi.alternatives().try(
     // "image" or "image,video"
@@ -187,7 +201,7 @@ const listMediaFields = {
     }),
 
   // sorting
-  sortBy: Joi.string().valid(...SORTABLE_COLUMNS),
+  sortBy: Joi.string().valid(...SORT_FIELDS),
   sortOrder: Joi.string().lowercase().valid(...SORT_ORDERS),
 
   // pagination: page + limit, or limit + offset

@@ -69,31 +69,34 @@ describe('Media API endpoints', () => {
       const media = res.body.data;
       assert.equal(media.title, 'Holiday');
       assert.equal(media.description, 'Beach day');
-      assert.equal(media.media_type, 'image');
-      assert.equal(media.mime_type, 'image/png');
-      assert.equal(media.original_name, 'Holiday Photo.PNG');
+      assert.equal(media.mediaType, 'image');
+      assert.equal(media.mimeType, 'image/png');
+      assert.equal(media.originalName, 'Holiday Photo.PNG');
       assert.equal(media.width, 640);
       assert.equal(media.height, 480);
       assert.deepEqual(media.tags, ['summer', 'beach']);
-      assert.equal(Number(media.file_size), 'fake-image-bytes'.length);
+      assert.equal(Number(media.fileSize), 'fake-image-bytes'.length);
       assert.ok(media.id > 0);
-      assert.ok(media.created_at);
+      assert.ok(media.createdAt);
 
       // the file is on disk under a generated name, inside the upload folder
-      assert.notEqual(media.file_name, media.original_name);
-      assert.ok(fs.existsSync(media.file_path));
-      assert.deepEqual(t.filesOnDisk(), [media.file_name]);
+      assert.notEqual(media.fileName, media.originalName);
+      assert.ok(fs.existsSync(media.filePath));
+      assert.deepEqual(t.filesOnDisk(), [media.fileName]);
     });
 
-    it('uses the file name as the title when none is given', async () => {
-      const media = await createMedia({ name: 'sunset.jpg', type: 'image/jpeg' });
-      assert.equal(media.title, 'sunset');
+    it('requires a title', async () => {
+      const res = await t.uploadForm((f) => f.append('file', new Blob(['bytes'], { type: 'image/png' }), 'sunset.png'));
+      assertError(res, 400, /title is required/);
+      assert.ok(res.body.errors.some((e) => e.source === 'body' && e.field === 'title'));
+      assert.deepEqual(t.filesOnDisk(), [], 'the rejected upload must not be stored');
+      assert.equal(await t.rowCount(), 0);
     });
 
     it('detects the media type from the file', async () => {
-      assert.equal((await createMedia({ name: 'a.mp4', type: 'video/mp4' })).media_type, 'video');
-      assert.equal((await createMedia({ name: 'a.mp3', type: 'audio/mpeg' })).media_type, 'audio');
-      assert.equal((await createMedia({ name: 'a.pdf', type: 'application/pdf' })).media_type, 'document');
+      assert.equal((await createMedia({ name: 'a.mp4', type: 'video/mp4' })).mediaType, 'video');
+      assert.equal((await createMedia({ name: 'a.mp3', type: 'audio/mpeg' })).mediaType, 'audio');
+      assert.equal((await createMedia({ name: 'a.pdf', type: 'application/pdf' })).mediaType, 'document');
     });
 
     it('rejects a request with no file', async () => {
@@ -105,6 +108,91 @@ describe('Media API endpoints', () => {
       const res = await t.upload({ name: 'tool.exe', type: 'application/x-msdownload' });
       assertError(res, 400);
       assert.deepEqual(t.filesOnDisk(), []);
+    });
+  });
+
+  describe('the media object (Media model)', () => {
+    it('uses camelCase field names and nothing else', async () => {
+      const media = await createMedia({ fields: { description: 'd', tags: 'a' } });
+      assert.deepEqual(Object.keys(media).sort(), [
+        'category', 'createdAt', 'description', 'duration', 'fileName', 'filePath', 'fileSize', 'height',
+        'id', 'mediaType', 'mimeType', 'originalName', 'tags', 'title', 'updatedAt', 'width',
+      ]);
+      for (const key of Object.keys(media)) assert.doesNotMatch(key, /_/, `"${key}" must not be snake_case`);
+    });
+
+    it('returns fileSize and duration as numbers, not strings', async () => {
+      const media = await createMedia({ content: 'twelve bytes', fields: { duration: '12.345', width: '640' } });
+      assert.equal(typeof media.fileSize, 'number');
+      assert.equal(media.fileSize, 'twelve bytes'.length);
+      assert.equal(typeof media.duration, 'number');
+      assert.equal(media.duration, 12.35);
+      assert.equal(media.width, 640);
+
+      const none = await createMedia();
+      assert.equal(none.duration, null, 'a missing duration stays null, not 0');
+      // and the same on every endpoint that returns a media object
+      const fetched = (await t.request('GET', `/api/media/${media.id}`)).body.data;
+      assert.equal(fetched.fileSize, media.fileSize);
+      assert.equal(fetched.duration, 12.35);
+      const listed = (await t.request('GET', '/api/media')).body.data;
+      assert.ok(listed.every((m) => typeof m.fileSize === 'number'));
+    });
+  });
+
+  describe('category', () => {
+    it('defaults to "general"', async () => {
+      assert.equal((await createMedia()).category, 'general');
+    });
+
+    it('is stored and returned, ignoring case', async () => {
+      const media = await createMedia({ fields: { category: 'Marketing' } });
+      assert.equal(media.category, 'marketing');
+      assert.equal((await t.request('GET', `/api/media/${media.id}`)).body.data.category, 'marketing');
+    });
+
+    it('accepts every valid category', async () => {
+      for (const category of ['general', 'marketing', 'design', 'documentation', 'reports', 'other']) {
+        assert.equal((await createMedia({ fields: { category } })).category, category);
+      }
+    });
+
+    it('rejects an unknown category on upload and stores nothing', async () => {
+      const res = await t.upload({ fields: { category: 'cat-pictures' } });
+      assertError(res, 400, /category must be one of: general, marketing, design, documentation, reports, other/);
+      assert.ok(res.body.errors.some((e) => e.source === 'body' && e.field === 'category'));
+      assert.deepEqual(t.filesOnDisk(), []);
+      assert.equal(await t.rowCount(), 0);
+    });
+
+    it('can be changed with an update', async () => {
+      const media = await createMedia();
+      const res = await t.request('PATCH', `/api/media/${media.id}`, { category: 'design' });
+      assertSuccess(res, 200);
+      assert.equal(res.body.data.category, 'design');
+    });
+
+    it('can be changed for several items at once', async () => {
+      const a = await createMedia();
+      const b = await createMedia();
+      const res = await t.request('POST', '/api/media/bulk-update', { ids: [a.id, b.id], category: 'reports' });
+      assertSuccess(res, 200);
+      assert.deepEqual(res.body.data.updated.map((m) => m.category), ['reports', 'reports']);
+    });
+
+    it('rejects an unknown category on update', async () => {
+      const media = await createMedia();
+      const res = await t.request('PATCH', `/api/media/${media.id}`, { category: 'nope' });
+      assertError(res, 400, /category must be one of/);
+      assert.equal((await t.request('GET', `/api/media/${media.id}`)).body.data.category, 'general');
+    });
+
+    it('can be used to filter the list', async () => {
+      await createMedia({ fields: { category: 'design', title: 'A design' } });
+      await createMedia({ fields: { category: 'reports', title: 'A report' } });
+      const res = await t.request('GET', '/api/media?category=design');
+      assertSuccess(res, 200);
+      assert.deepEqual(res.body.data.map((m) => m.title), ['A design']);
     });
   });
 
@@ -168,9 +256,9 @@ describe('Media API endpoints', () => {
 
     it('does not let the stored file details be changed', async () => {
       const created = await createMedia();
-      const res = await t.request('PATCH', `/api/media/${created.id}`, { file_path: '/etc/passwd' });
-      assertError(res, 400, /file_path is not allowed/);
-      assert.equal((await t.request('GET', `/api/media/${created.id}`)).body.data.file_path, created.file_path);
+      const res = await t.request('PATCH', `/api/media/${created.id}`, { filePath: '/etc/passwd' });
+      assertError(res, 400, /filePath is not allowed/);
+      assert.equal((await t.request('GET', `/api/media/${created.id}`)).body.data.filePath, created.filePath);
     });
 
     it('rejects an empty update', async () => {
@@ -198,7 +286,7 @@ describe('Media API endpoints', () => {
 
     it('still deletes the record if its file is already gone', async () => {
       const created = await createMedia();
-      fs.rmSync(created.file_path);
+      fs.rmSync(created.filePath);
 
       const res = await t.request('DELETE', `/api/media/${created.id}`);
       assertSuccess(res, 200);

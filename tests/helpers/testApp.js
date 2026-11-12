@@ -73,9 +73,11 @@ const startTestApp = async () => {
   };
 
   // multipart upload -> { status, body }
+  // A title is required by the API, so one is supplied unless the test passes
+  // its own (or sets `fields.title` explicitly, even to '' or undefined-like values).
   const upload = async ({ name = 'photo.png', type = 'image/png', content = 'fake-image-bytes', fields = {} } = {}) => {
     const form = new FormData();
-    for (const [key, value] of Object.entries(fields)) form.append(key, value);
+    for (const [key, value] of Object.entries({ title: 'Test upload', ...fields })) form.append(key, value);
     form.append('file', new Blob([content], { type }), name);
     const res = await fetch(`${base}/api/media`, { method: 'POST', body: form });
     return { status: res.status, body: await res.json() };

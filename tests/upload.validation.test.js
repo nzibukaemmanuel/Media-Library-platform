@@ -58,15 +58,15 @@ describe('Upload validation edge cases', () => {
       it(`accepts ${name} as ${expected}`, async () => {
         const res = await t.upload({ name, type });
         assert.equal(res.status, 201, JSON.stringify(res.body));
-        assert.equal(res.body.data.media_type, expected);
+        assert.equal(res.body.data.mediaType, expected);
       });
     }
 
     it('treats the extension case-insensitively and stores it in lower case', async () => {
       const res = await t.upload({ name: 'HOLIDAY.JpG', type: 'image/jpeg' });
       assert.equal(res.status, 201);
-      assert.match(res.body.data.file_name, /\.jpg$/);
-      assert.equal(res.body.data.original_name, 'HOLIDAY.JpG');
+      assert.match(res.body.data.fileName, /\.jpg$/);
+      assert.equal(res.body.data.originalName, 'HOLIDAY.JpG');
     });
 
     it('only the last extension counts: photo.exe.png is a png, photo.png.exe is not', async () => {
@@ -98,7 +98,7 @@ describe('Upload validation edge cases', () => {
     it('accepts a file exactly at the limit', async () => {
       const res = await t.upload({ content: 'x'.repeat(LIMIT) });
       assert.equal(res.status, 201, JSON.stringify(res.body));
-      assert.equal(Number(res.body.data.file_size), LIMIT);
+      assert.equal(Number(res.body.data.fileSize), LIMIT);
     });
 
     it('rejects a file one byte over the limit and stores nothing', async () => {
@@ -124,19 +124,19 @@ describe('Upload validation edge cases', () => {
         const res = await t.upload({ name, type: 'image/png' });
         assert.equal(res.status, 201, `${name}: ${JSON.stringify(res.body)}`);
         const stored = res.body.data;
-        assert.equal(path.dirname(stored.file_path), t.uploadDir, `${name} must be stored inside the upload folder`);
-        assert.equal(path.basename(stored.file_name), stored.file_name, 'stored name has no directory part');
-        assert.match(stored.file_name, /^\d+-[0-9a-f-]{36}\.png$/, 'stored under a generated name');
+        assert.equal(path.dirname(stored.filePath), t.uploadDir, `${name} must be stored inside the upload folder`);
+        assert.equal(path.basename(stored.fileName), stored.fileName, 'stored name has no directory part');
+        assert.match(stored.fileName, /^\d+-[0-9a-f-]{36}\.png$/, 'stored under a generated name');
       }
       assert.equal(t.filesOnDisk().length, 4);
     });
 
     it('keeps spaces and unicode characters in the original name', async () => {
       const name = 'Zażółć gęślą jaźń 写真 фото.png';
-      const res = await t.upload({ name, type: 'image/png' });
+      const res = await t.upload({ name, type: 'image/png', fields: { title: 'Zażółć 写真 фото' } });
       assert.equal(res.status, 201, JSON.stringify(res.body));
-      assert.equal(res.body.data.original_name, name);
-      assert.equal(res.body.data.title, 'Zażółć gęślą jaźń 写真 фото');
+      assert.equal(res.body.data.originalName, name);
+      assert.equal(res.body.data.title, 'Zażółć 写真 фото'); // form fields keep unicode too
     });
 
     it('rejects a name too long for the database without leaving a file behind', async () => {
@@ -149,21 +149,21 @@ describe('Upload validation edge cases', () => {
       const name = `${'a'.repeat(251)}.png`;
       const res = await t.upload({ name, type: 'image/png' });
       assert.equal(res.status, 201, JSON.stringify(res.body));
-      assert.equal(res.body.data.original_name, name);
+      assert.equal(res.body.data.originalName, name);
     });
 
     it('stores the same file uploaded twice as two separate files', async () => {
       const a = (await t.upload({ name: 'same.png' })).body.data;
       const b = (await t.upload({ name: 'same.png' })).body.data;
       assert.notEqual(a.id, b.id);
-      assert.notEqual(a.file_name, b.file_name);
+      assert.notEqual(a.fileName, b.fileName);
       assert.equal(t.filesOnDisk().length, 2);
     });
 
     it('gives every file in a burst of parallel uploads its own name', async () => {
       const results = await Promise.all(Array.from({ length: 12 }, () => t.upload({ name: 'burst.png' })));
       assert.ok(results.every((r) => r.status === 201));
-      assert.equal(new Set(results.map((r) => r.body.data.file_name)).size, 12);
+      assert.equal(new Set(results.map((r) => r.body.data.fileName)).size, 12);
       assert.equal(t.filesOnDisk().length, 12);
       assert.equal(await t.rowCount(), 12);
     });
@@ -206,6 +206,7 @@ describe('Upload validation edge cases', () => {
 
     it('accepts a tags field repeated several times', async () => {
       const res = await t.uploadForm((f) => {
+        f.append('title', 'Repeated tags');
         f.append('tags', 'One');
         f.append('tags', 'two');
         f.append('file', png(), 'a.png');
@@ -230,9 +231,9 @@ describe('Upload validation edge cases', () => {
       ['21 tags', { tags: Array.from({ length: 21 }, (_, i) => `t${i}`).join(',') }, 'tags'],
       ['a tag over 50 characters', { tags: 'x'.repeat(51) }, 'tags'],
       ['an unknown field', { colour: 'red' }, 'colour'],
-      ['an attempt to set the stored path', { file_path: '/etc/passwd' }, 'file_path'],
-      ['an attempt to set the media type', { media_type: 'video' }, 'media_type'],
-      ['an attempt to set the file size', { file_size: '1' }, 'file_size'],
+      ['an attempt to set the stored path', { filePath: '/etc/passwd' }, 'filePath'],
+      ['an attempt to set the media type', { mediaType: 'video' }, 'mediaType'],
+      ['an attempt to set the file size', { fileSize: '1' }, 'fileSize'],
       ['an attempt to set the id', { id: '7' }, 'id'],
     ];
     for (const [label, fields, field] of invalid) {

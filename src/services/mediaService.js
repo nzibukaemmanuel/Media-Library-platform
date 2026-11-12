@@ -6,6 +6,7 @@ const { deleteFile } = require('../utils/fileStorage');
 const { checkUpload } = require('../utils/fileTypes');
 const {
   MEDIA_TYPES,
+  CATEGORIES,
   MAX_TAGS,
   MAX_TAG_LENGTH,
   MAX_TITLE_LENGTH,
@@ -71,10 +72,21 @@ const cleanText = (value, field, { required = false, max } = {}) => {
   return text;
 };
 
+// A category must be one of the known ones (case-insensitive)
+const parseCategory = (value) => {
+  if (value === undefined || value === null || value === '') return undefined;
+  const category = String(value).trim().toLowerCase();
+  if (!CATEGORIES.includes(category)) {
+    throw new AppError(`category must be one of: ${CATEGORIES.join(', ')}`, 400);
+  }
+  return category;
+};
+
 // Metadata fields a client may set when describing an asset
 const parseMetadata = (body) => ({
   title: cleanText(body.title, 'title', { max: MAX_TITLE_LENGTH }),
   description: cleanText(body.description, 'description'),
+  category: parseCategory(body.category),
   tags: body.tags === undefined ? undefined : normalizeTags(body.tags),
   width: parseNumber(body.width, 'width', { integer: true, min: 0, exclusiveMin: true }),
   height: parseNumber(body.height, 'height', { integer: true, min: 0, exclusiveMin: true }),
@@ -109,12 +121,12 @@ const createMedia = async (file, body = {}) => {
     return await mediaRepository.create({
       ...metadata,
       title: metadata.title || fallbackTitle,
-      media_type: mediaType,
-      file_name: file.filename,
-      original_name: file.originalname,
-      file_path: file.path,
-      mime_type: file.mimetype,
-      file_size: file.size,
+      mediaType,
+      fileName: file.filename,
+      originalName: file.originalname,
+      filePath: file.path,
+      mimeType: file.mimetype,
+      fileSize: file.size,
     });
   } catch (error) {
     await deleteFile(file.path);
@@ -136,6 +148,7 @@ const listMedia = async (query = {}) => {
     filters.mediaType = types;
   }
 
+  filters.category = parseCategory(query.category);
   if (query.mimeType) filters.mimeType = String(query.mimeType).toLowerCase();
   if (query.search) filters.search = String(query.search).trim();
 
@@ -177,8 +190,9 @@ const getMedia = async (id) => {
   return media;
 };
 
-// Update descriptive metadata only. The stored file and its technical
-// fields (type, MIME type, size, path) cannot be changed here.
+// Update descriptive metadata only (title, description, category, tags,
+// dimensions). The stored file and its technical fields (type, MIME type,
+// size, path) cannot be changed here.
 const updateMedia = async (id, body = {}) => {
   const mediaId = parseId(id);
   const changes = compact(parseMetadata(body));
@@ -202,7 +216,7 @@ const updateMedia = async (id, body = {}) => {
 const deleteMedia = async (id) => {
   const media = await mediaRepository.remove(parseId(id));
   if (!media) throw new AppError('Media not found', 404);
-  const result = await deleteFile(media.file_path);
+  const result = await deleteFile(media.filePath);
   return { media, fileDeleted: result.deleted };
 };
 
@@ -221,7 +235,7 @@ const bulkDeleteMedia = async (ids) => {
 
   const deleted = await mediaRepository.removeMany(mediaIds);
 
-  const results = await Promise.all(deleted.map((media) => deleteFile(media.file_path)));
+  const results = await Promise.all(deleted.map((media) => deleteFile(media.filePath)));
   const filesNotDeleted = deleted
     .filter((_, index) => !results[index].deleted)
     .map((media) => media.id);

@@ -10,10 +10,22 @@ BEGIN
 END
 $$;
 
+-- Categories a media item can belong to (keep in sync with CATEGORIES in
+-- src/config/constants.js)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'media_category') THEN
+    CREATE TYPE media_category AS ENUM
+      ('general', 'marketing', 'design', 'documentation', 'reports', 'other');
+  END IF;
+END
+$$;
+
 CREATE TABLE IF NOT EXISTS media_assets (
   id             SERIAL PRIMARY KEY,
   title          VARCHAR(255)  NOT NULL,
   description    TEXT,
+  category       media_category NOT NULL DEFAULT 'general',
   media_type     media_type    NOT NULL,
   file_name      VARCHAR(255)  NOT NULL,          -- name stored on disk
   original_name  VARCHAR(255)  NOT NULL,          -- name the user uploaded
@@ -28,7 +40,13 @@ CREATE TABLE IF NOT EXISTS media_assets (
   updated_at     TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 
+-- Upgrade: databases created before categories existed get the column here
+-- (a no-op on a fresh database, where CREATE TABLE already added it)
+ALTER TABLE media_assets
+  ADD COLUMN IF NOT EXISTS category media_category NOT NULL DEFAULT 'general';
+
 CREATE INDEX IF NOT EXISTS idx_media_assets_media_type ON media_assets (media_type);
+CREATE INDEX IF NOT EXISTS idx_media_assets_category   ON media_assets (category);
 CREATE INDEX IF NOT EXISTS idx_media_assets_created_at ON media_assets (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_media_assets_tags       ON media_assets USING GIN (tags);
 

@@ -1,26 +1,17 @@
 const { pool } = require('../config/db');
-const { SORTABLE_COLUMNS, DEFAULT_LIMIT, MAX_LIMIT } = require('../config/constants');
+const { DEFAULT_LIMIT, MAX_LIMIT } = require('../config/constants');
+const Media = require('../models/Media');
 
-// Columns a caller may set on create / change on update (never id or timestamps)
-const WRITABLE_COLUMNS = [
-  'title',
-  'description',
-  'media_type',
-  'file_name',
-  'original_name',
-  'file_path',
-  'mime_type',
-  'file_size',
-  'width',
-  'height',
-  'duration',
-  'tags',
-];
+// The repository works with API-style objects (camelCase: filePath, mediaType...).
+// Media.toColumns / Media.fromRow translate to and from the database columns, so
+// column names never leak out of this layer. Writable fields are whitelisted by
+// the model: id and the timestamps can never be set by a caller.
 
-// Create a media asset and return the inserted row
+// Create a media asset and return it
 const create = async (data) => {
-  const columns = WRITABLE_COLUMNS.filter((c) => data[c] !== undefined);
-  const values = columns.map((c) => data[c]);
+  const written = Media.toColumns(data);
+  const columns = Object.keys(written);
+  const values = columns.map((c) => written[c]);
   const placeholders = columns.map((_, i) => `$${i + 1}`);
 
   const { rows } = await pool.query(
@@ -29,12 +20,8 @@ const create = async (data) => {
      RETURNING *`,
     values
   );
-  return rows[0];
+  return Media.fromRow(rows[0]);
 };
-
-// Columns results can be sorted by (whitelist: the column name is placed
-// into the SQL text, so it must never come straight from user input)
-const SORTABLE_COLUMN_SET = new Set(SORTABLE_COLUMNS);
 
 // Parse a positive integer, falling back to a default for missing/invalid input
 const toPositiveInt = (value, fallback) => {
@@ -56,7 +43,8 @@ const toArray = (value) => (Array.isArray(value) ? value : [value]);
 // Build a parameterised WHERE clause from the supported filters.
 const buildWhere = (filters) => {
   const {
-    mediaType, // string or array: 'image' | ['image', 'video']
+    category, // exact category, e.g. 'marketing'
+    mediaType, // string or array: 'image' | ['image', 'document']
     mimeType, // exact, e.g. 'image/png'
     tag, // single tag the asset must have
     tags, // array: asset must have ALL of these tags
@@ -75,6 +63,7 @@ const buildWhere = (filters) => {
     return `$${values.length}`;
   };
 
+  if (category) conditions.push(`category = ${param(category)}::media_category`);
   if (mediaType) conditions.push(`media_type = ANY(${param(toArray(mediaType))}::media_type[])`);
   if (mimeType) conditions.push(`mime_type = ${param(mimeType)}`);
 
@@ -103,7 +92,7 @@ const buildWhere = (filters) => {
 // Search, filter, sort and paginate media assets.
 // Filters are optional and combine with AND (see buildWhere for the list).
 //
-// Sorting: sortBy (one of SORTABLE_COLUMNS, default created_at) and
+// Sorting: sortBy (one of the SORT_FIELDS, default createdAt) and
 // sortOrder ('asc' | 'desc', default desc). id breaks ties so pages never
 // overlap or skip rows when many rows share the same sort value.
 //
@@ -118,7 +107,7 @@ const findAll = async (filters = {}) => {
   const { sortBy, sortOrder } = filters;
   const { where, values } = buildWhere(filters);
 
-  const column = SORTABLE_COLUMN_SET.has(sortBy) ? sortBy : 'created_at';
+  const column = Media.sortColumn(sortBy);
   const direction = String(sortOrder).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
   const limit = Math.min(toPositiveInt(filters.limit, DEFAULT_LIMIT), MAX_LIMIT);
@@ -144,7 +133,7 @@ const findAll = async (filters = {}) => {
     ),
   ]);
   const total = countResult.rows[0].total;
-  const rows = pageResult.rows;
+  const rows = pageResult.rows.map(Media.fromRow);
 
   const totalPages = Math.ceil(total / limit);
 
@@ -177,17 +166,18 @@ const getTags = async () => {
 // Get one media asset by id, or null if it does not exist
 const findById = async (id) => {
   const { rows } = await pool.query('SELECT * FROM media_assets WHERE id = $1', [id]);
-  return rows[0] || null;
+  return Media.fromRow(rows[0]);
 };
 
-// Update only the provided fields. Returns the updated row, or null if the
-// id does not exist. With nothing to update it just returns the current row.
+// Update only the provided fields. Returns the updated asset, or null if the
+// id does not exist. With nothing to update it just returns the current one.
 const update = async (id, data) => {
-  const columns = WRITABLE_COLUMNS.filter((c) => data[c] !== undefined);
+  const written = Media.toColumns(data);
+  const columns = Object.keys(written);
   if (columns.length === 0) return findById(id);
 
   const setClause = columns.map((c, i) => `${c} = $${i + 1}`).join(', ');
-  const values = columns.map((c) => data[c]);
+  const values = columns.map((c) => written[c]);
 
   const { rows } = await pool.query(
     `UPDATE media_assets SET ${setClause}
@@ -195,20 +185,20 @@ const update = async (id, data) => {
      RETURNING *`,
     [...values, id]
   );
-  return rows[0] || null;
+  return Media.fromRow(rows[0]);
 };
 
-// Delete a media asset. Returns the deleted row (so the caller can remove
+// Delete a media asset. Returns the deleted asset (so the caller can remove
 // the file from disk), or null if the id does not exist.
 const remove = async (id) => {
   const { rows } = await pool.query(
     'DELETE FROM media_assets WHERE id = $1 RETURNING *',
     [id]
   );
-  return rows[0] || null;
+  return Media.fromRow(rows[0]);
 };
 
-// Delete several media assets. Returns the deleted rows (so the caller can
+// Delete several media assets. Returns the deleted assets (so the caller can
 // remove their files); ids that do not exist are simply absent.
 const removeMany = async (ids) => {
   if (ids.length === 0) return [];
@@ -216,17 +206,18 @@ const removeMany = async (ids) => {
     'DELETE FROM media_assets WHERE id = ANY($1::int[]) RETURNING *',
     [ids]
   );
-  return rows;
+  return rows.map(Media.fromRow);
 };
 
 // Apply the same metadata changes to several assets at once.
-// Returns the updated rows (ids that do not exist are simply absent).
+// Returns the updated assets (ids that do not exist are simply absent).
 const updateMany = async (ids, data) => {
-  const columns = WRITABLE_COLUMNS.filter((c) => data[c] !== undefined);
+  const written = Media.toColumns(data);
+  const columns = Object.keys(written);
   if (columns.length === 0 || ids.length === 0) return [];
 
   const setClause = columns.map((c, i) => `${c} = $${i + 1}`).join(', ');
-  const values = columns.map((c) => data[c]);
+  const values = columns.map((c) => written[c]);
 
   const { rows } = await pool.query(
     `UPDATE media_assets SET ${setClause}
@@ -234,7 +225,7 @@ const updateMany = async (ids, data) => {
      RETURNING *`,
     [...values, ids]
   );
-  return rows;
+  return rows.map(Media.fromRow);
 };
 
 // Rename a tag on every asset that has it. If an asset already has the new

@@ -59,7 +59,12 @@ const uploadSingle = (req, res, next) => {
   }).single('file');
 
   upload(req, res, (error) => {
-    if (!error) return next();
+    if (!error) {
+      // Report a missing file before the other fields are validated: it is the
+      // more fundamental problem, and "title is required" would be misleading
+      if (!req.file) return next(new AppError('A file is required', 400));
+      return next();
+    }
 
     // Turn multer's own errors into client errors with readable messages
     if (error instanceof multer.MulterError) {
