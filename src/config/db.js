@@ -2,6 +2,8 @@ require('dotenv').config();
 
 const { Pool } = require('pg');
 
+const { getErrorMessage } = require('../utils/errorMessage');
+
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: Number(process.env.DB_PORT) || 5432,
@@ -18,17 +20,16 @@ pool.on('error', (error) => {
   console.error('Unexpected PostgreSQL pool error:', error.message);
 });
 
-// Verify the database is reachable
+// Verify the database is reachable.
+// pool.query checks out a connection and always returns it to the pool, even
+// when the query fails; checking out a client by hand here would leak it on
+// any error between connect() and release().
 const connectDB = async () => {
   try {
-    const client = await pool.connect();
-    const { rows } = await client.query('SELECT current_database() AS db');
+    const { rows } = await pool.query('SELECT current_database() AS db');
     console.log(`PostgreSQL connected successfully (database: ${rows[0].db})`);
-    client.release();
   } catch (error) {
-    // Connection-refused errors can have an empty message (AggregateError)
-    const reason = error.message || error.code || 'unknown error';
-    console.error(`Database connection failed: ${reason}`);
+    console.error(`Database connection failed: ${getErrorMessage(error)}`);
     throw error;
   }
 };

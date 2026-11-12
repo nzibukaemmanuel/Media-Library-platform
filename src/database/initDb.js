@@ -2,22 +2,24 @@
 // Usage: npm run db:init
 require('dotenv').config();
 
-const fs = require('node:fs');
+const fs = require('node:fs/promises');
 const path = require('node:path');
 const { pool } = require('../config/db');
+const { getErrorMessage } = require('../utils/errorMessage');
 
-(async () => {
+const main = async () => {
   try {
-    const sql = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
+    const sql = await fs.readFile(path.join(__dirname, 'schema.sql'), 'utf8');
     await pool.query(sql);
     console.log('Database schema applied successfully');
-  } catch (error) {
-    console.error('Failed to apply schema:', error.message);
-    process.exitCode = 1;
   } finally {
+    // Always release the connections so the process can exit, success or not
     await pool.end();
   }
-})().catch((error) => {
-  console.error('Failed to close database connection:', error.message);
+};
+
+// One place that decides what a failure looks like
+main().catch((error) => {
+  console.error(`Failed to apply schema: ${getErrorMessage(error)}`);
   process.exitCode = 1;
 });

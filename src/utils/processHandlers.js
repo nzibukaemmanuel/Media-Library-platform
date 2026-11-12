@@ -12,6 +12,8 @@
 // in progress, release the database and exit, and let the process manager
 // (Docker, PM2, systemd...) start a fresh instance.
 
+const { getErrorMessage } = require('./errorMessage');
+
 const DEFAULT_TIMEOUT_MS = 10000;
 
 const describe = (reason) =>
@@ -72,7 +74,7 @@ const registerProcessHandlers = ({
       await closeServer(getServer());
       await closeDB();
     } catch (error) {
-      log.error('Error during shutdown:', error?.message || error);
+      log.error('Error during shutdown:', getErrorMessage(error));
       code = 1;
     }
 

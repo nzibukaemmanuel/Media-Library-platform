@@ -1,4 +1,4 @@
-const fs = require('node:fs');
+const fs = require('node:fs/promises');
 const crypto = require('node:crypto');
 const path = require('node:path');
 
@@ -20,9 +20,16 @@ const getMaxFileSize = () => {
 // the same original name never collide and user-supplied names never reach
 // the file system. Only a sanitised extension is kept.
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = getUploadDir();
-    fs.mkdir(dir, { recursive: true }, (error) => cb(error, dir));
+  // multer's storage API is callback based, so the result goes to cb; the
+  // body itself uses async/await like the rest of the code base
+  destination: async (req, file, cb) => {
+    try {
+      const dir = getUploadDir();
+      await fs.mkdir(dir, { recursive: true });
+      cb(null, dir);
+    } catch (error) {
+      cb(error);
+    }
   },
   filename: (req, file, cb) => {
     const extension = path.extname(file.originalname).toLowerCase().replaceAll(/[^.a-z0-9]/g, '');

@@ -1,7 +1,12 @@
-// Wrap an async route handler so a rejected promise is passed to Express's
-// error handling (next) instead of causing an unhandled rejection.
-const catchAsync = (handler) => (req, res, next) => {
-  Promise.resolve(handler(req, res, next)).catch(next);
+// Wrap a route handler so that ANY failure, a rejected promise or a
+// synchronous throw, is passed to Express's error handling (next) instead of
+// causing an unhandled rejection or an unanswered request.
+const catchAsync = (handler) => async (req, res, next) => {
+  try {
+    await handler(req, res, next);
+  } catch (error) {
+    next(error);
+  }
 };
 
 module.exports = catchAsync;

@@ -3,6 +3,7 @@ require('dotenv').config();
 const app = require('./src/app');
 const { connectDB, closeDB } = require('./src/config/db');
 const { registerProcessHandlers } = require('./src/utils/processHandlers');
+const { getErrorMessage } = require('./src/utils/errorMessage');
 
 const PORT = process.env.PORT || 5000;
 
@@ -22,15 +23,16 @@ const startServer = async () => {
     // Otherwise it would announce "Server running" while nothing listens.
     server = app.listen(PORT, (error) => {
       if (error) {
-        console.error(`Failed to listen on port ${PORT}:`, error.message || error.code || error);
+        console.error(`Failed to listen on port ${PORT}: ${getErrorMessage(error)}`);
         void shutdown('listen error', 1);
         return;
       }
       console.log(`Server running on http://localhost:${PORT}`);
     });
   } catch (error) {
-    console.error('Failed to start server:', error.message || error.code || error);
-    process.exit(1);
+    // Same graceful path as every other fatal error: release resources, exit 1
+    console.error(`Failed to start server: ${getErrorMessage(error)}`);
+    await shutdown('startup failure', 1);
   }
 };
 
