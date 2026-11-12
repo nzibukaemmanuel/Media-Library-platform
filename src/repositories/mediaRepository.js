@@ -128,18 +128,23 @@ const findAll = async (filters = {}) => {
     : Math.floor(toOffset(filters.offset) / limit) + 1;
   const offset = usePage ? (page - 1) * limit : toOffset(filters.offset);
 
-  const countResult = await pool.query(
-    `SELECT COUNT(*)::int AS total FROM media_assets ${where}`,
-    values
-  );
+  // The total count and the requested page do not depend on each other, so
+  // they run at the same time on two pooled connections instead of one after
+  // the other: the request takes as long as the slower query, not the sum.
+  // (If either fails, Promise.all rejects right away and the error handler
+  // takes over.) The two queries are not one snapshot, so under concurrent
+  // writes the total can differ by a row from the page; fine for pagination.
+  const [countResult, pageResult] = await Promise.all([
+    pool.query(`SELECT COUNT(*)::int AS total FROM media_assets ${where}`, values),
+    pool.query(
+      `SELECT * FROM media_assets ${where}
+       ORDER BY ${column} ${direction}, id ${direction}
+       LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
+      [...values, limit, offset]
+    ),
+  ]);
   const total = countResult.rows[0].total;
-
-  const { rows } = await pool.query(
-    `SELECT * FROM media_assets ${where}
-     ORDER BY ${column} ${direction}, id ${direction}
-     LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
-    [...values, limit, offset]
-  );
+  const rows = pageResult.rows;
 
   const totalPages = Math.ceil(total / limit);
 
