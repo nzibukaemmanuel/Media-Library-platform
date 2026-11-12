@@ -2,6 +2,7 @@
 const express = require('express');
 
 const mediaRoutes = require('./routes/mediaRoutes');
+const { errorHandler, notFound } = require('./middlewares/errorHandler');
 
 const app = express();
 app.disable('x-powered-by');
@@ -28,12 +29,9 @@ app.get('/api/health', (req, res) => {
 // Media API
 app.use('/api/media', mediaRoutes);
 
-// Handle unknown routes
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: 'Route not found',
-  });
-});
+// Unknown routes -> 404, then every error -> one consistent JSON response.
+// errorHandler must be registered last.
+app.use(notFound);
+app.use(errorHandler);
 
 module.exports = app;
