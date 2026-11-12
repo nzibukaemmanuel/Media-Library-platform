@@ -90,6 +90,32 @@ const startTestApp = async () => {
     return { status: res.status, body: await res.json() };
   };
 
+  // Insert rows straight into the database, for tests that need exact control
+  // over values (sizes, dates, tags...) without uploading real files.
+  // Returns the inserted rows, including their generated ids.
+  const seed = async (rows) => {
+    const inserted = [];
+    for (const row of rows) {
+      const data = {
+        file_name: 'seed.png',
+        original_name: 'seed.png',
+        file_path: '/seed/seed.png',
+        mime_type: 'image/png',
+        media_type: 'image',
+        file_size: 1,
+        ...row,
+      };
+      const columns = Object.keys(data);
+      const { rows: result } = await pool.query(
+        `INSERT INTO media_assets (${columns.join(', ')})
+         VALUES (${columns.map((_, i) => `$${i + 1}`).join(', ')}) RETURNING *`,
+        columns.map((c) => data[c])
+      );
+      inserted.push(result[0]);
+    }
+    return inserted;
+  };
+
   // Empty the table and the upload folder so every test starts clean
   const reset = async () => {
     await pool.query('TRUNCATE media_assets RESTART IDENTITY');
@@ -112,6 +138,7 @@ const startTestApp = async () => {
     request,
     upload,
     uploadForm,
+    seed,
     reset,
     stop,
     filesOnDisk: () => fs.readdirSync(uploadDir),
