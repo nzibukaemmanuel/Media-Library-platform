@@ -31,28 +31,73 @@ const create = async (data) => {
   return rows[0];
 };
 
-// List media assets, newest first, with optional filters and pagination.
-// Returns { items, total } where total ignores limit/offset.
-const findAll = async ({ mediaType, tag, search, limit = 20, offset = 0 } = {}) => {
+// Columns results can be sorted by (whitelist: the column name is placed
+// into the SQL text, so it must never come straight from user input)
+const SORTABLE_COLUMNS = new Set(['created_at', 'updated_at', 'title', 'file_size']);
+
+// Escape LIKE wildcards so a search for "100%" or "a_b" matches literally
+const escapeLike = (text) => text.replace(/[\\%_]/g, '\\$&');
+
+const toArray = (value) => (Array.isArray(value) ? value : [value]);
+
+// Build a parameterised WHERE clause from the supported filters.
+const buildWhere = (filters) => {
+  const {
+    mediaType, // string or array: 'image' | ['image', 'video']
+    mimeType, // exact, e.g. 'image/png'
+    tag, // single tag the asset must have
+    tags, // array: asset must have ALL of these tags
+    anyTags, // array: asset must have AT LEAST ONE of these tags
+    search, // case-insensitive text in title, description or original name
+    minSize, // bytes
+    maxSize, // bytes
+    createdFrom, // inclusive, Date or ISO string
+    createdTo, // inclusive, Date or ISO string
+  } = filters;
+
   const conditions = [];
   const values = [];
+  const param = (value) => {
+    values.push(value);
+    return `$${values.length}`;
+  };
 
-  if (mediaType) {
-    values.push(mediaType);
-    conditions.push(`media_type = $${values.length}`);
-  }
-  if (tag) {
-    values.push(tag);
-    conditions.push(`$${values.length} = ANY(tags)`);
-  }
+  if (mediaType) conditions.push(`media_type = ANY(${param(toArray(mediaType))}::media_type[])`);
+  if (mimeType) conditions.push(`mime_type = ${param(mimeType)}`);
+
+  const allTags = [...(tag ? [tag] : []), ...(tags || [])];
+  if (allTags.length) conditions.push(`tags @> ${param(allTags)}::text[]`);
+  if (anyTags?.length) conditions.push(`tags && ${param(anyTags)}::text[]`);
+
   if (search) {
-    values.push(`%${search}%`);
+    const p = param(`%${escapeLike(search)}%`);
     conditions.push(
-      `(title ILIKE $${values.length} OR description ILIKE $${values.length})`
+      `(title ILIKE ${p} OR description ILIKE ${p} OR original_name ILIKE ${p})`
     );
   }
 
-  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+  if (minSize !== undefined) conditions.push(`file_size >= ${param(minSize)}`);
+  if (maxSize !== undefined) conditions.push(`file_size <= ${param(maxSize)}`);
+  if (createdFrom) conditions.push(`created_at >= ${param(createdFrom)}`);
+  if (createdTo) conditions.push(`created_at <= ${param(createdTo)}`);
+
+  return {
+    where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '',
+    values,
+  };
+};
+
+// Search and filter media assets with sorting and pagination.
+// All filters are optional and combine with AND (see buildWhere for the list).
+// Sorting: sortBy (one of SORTABLE_COLUMNS, default created_at) and
+// sortOrder ('asc' | 'desc', default desc); id breaks ties for stable paging.
+// Returns { items, total } where total ignores limit/offset.
+const findAll = async (filters = {}) => {
+  const { sortBy, sortOrder, limit = 20, offset = 0 } = filters;
+  const { where, values } = buildWhere(filters);
+
+  const column = SORTABLE_COLUMNS.has(sortBy) ? sortBy : 'created_at';
+  const direction = String(sortOrder).toLowerCase() === 'asc' ? 'ASC' : 'DESC';
 
   const countResult = await pool.query(
     `SELECT COUNT(*)::int AS total FROM media_assets ${where}`,
@@ -61,12 +106,24 @@ const findAll = async ({ mediaType, tag, search, limit = 20, offset = 0 } = {}) 
 
   const { rows } = await pool.query(
     `SELECT * FROM media_assets ${where}
-     ORDER BY created_at DESC, id DESC
+     ORDER BY ${column} ${direction}, id ${direction}
      LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
     [...values, limit, offset]
   );
 
   return { items: rows, total: countResult.rows[0].total };
+};
+
+// All distinct tags with how many assets use each, most used first.
+// Useful for building a tag filter.
+const getTags = async () => {
+  const { rows } = await pool.query(
+    `SELECT tag, COUNT(*)::int AS count
+     FROM media_assets, UNNEST(tags) AS tag
+     GROUP BY tag
+     ORDER BY count DESC, tag ASC`
+  );
+  return rows;
 };
 
 // Get one media asset by id, or null if it does not exist
@@ -106,6 +163,7 @@ const remove = async (id) => {
 module.exports = {
   create,
   findAll,
+  getTags,
   findById,
   update,
   remove,
