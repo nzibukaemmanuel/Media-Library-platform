@@ -1,15 +1,17 @@
 const mediaService = require('../services/mediaService');
 const catchAsync = require('../utils/catchAsync');
+const { sendSuccess } = require('../utils/apiResponse');
 
 // Controllers only translate HTTP <-> service calls: read the request,
-// call the service, send a JSON response. Validation and business rules
-// live in the service, which throws AppError for the error handler.
+// call the service, send a response in the standard envelope (see
+// utils/apiResponse.js). Validation and business rules live in the service,
+// which throws AppError for the error handler.
 
 // POST /media  (multipart; the file is attached to req.file by upload middleware)
 const createMedia = catchAsync(async (req, res) => {
   const media = await mediaService.createMedia(req.file, req.body);
-  res.status(201).json({
-    success: true,
+  sendSuccess(res, {
+    statusCode: 201,
     message: 'Media uploaded successfully',
     data: media,
   });
@@ -17,37 +19,30 @@ const createMedia = catchAsync(async (req, res) => {
 
 // GET /media?search=&mediaType=&tags=&sortBy=&page=&limit= ...
 const listMedia = catchAsync(async (req, res) => {
-  const { items, total, pagination } = await mediaService.listMedia(req.query);
-  res.status(200).json({
-    success: true,
-    count: items.length,
-    total,
-    pagination,
+  const { items, pagination } = await mediaService.listMedia(req.query);
+  sendSuccess(res, {
+    message: 'Media retrieved successfully',
     data: items,
+    meta: { count: items.length, pagination },
   });
 });
 
 // GET /media/:id
 const getMedia = catchAsync(async (req, res) => {
   const media = await mediaService.getMedia(req.params.id);
-  res.status(200).json({ success: true, data: media });
+  sendSuccess(res, { message: 'Media retrieved successfully', data: media });
 });
 
 // PATCH /media/:id
 const updateMedia = catchAsync(async (req, res) => {
   const media = await mediaService.updateMedia(req.params.id, req.body);
-  res.status(200).json({
-    success: true,
-    message: 'Media updated successfully',
-    data: media,
-  });
+  sendSuccess(res, { message: 'Media updated successfully', data: media });
 });
 
 // DELETE /media/:id
 const deleteMedia = catchAsync(async (req, res) => {
   const { media, fileDeleted } = await mediaService.deleteMedia(req.params.id);
-  res.status(200).json({
-    success: true,
+  sendSuccess(res, {
     message: fileDeleted
       ? 'Media deleted successfully'
       : 'Media record deleted, but its file could not be removed from storage',
@@ -59,8 +54,7 @@ const deleteMedia = catchAsync(async (req, res) => {
 const bulkUpdateMedia = catchAsync(async (req, res) => {
   const { ids, ...changes } = req.body ?? {};
   const result = await mediaService.bulkUpdateMedia(ids, changes);
-  res.status(200).json({
-    success: true,
+  sendSuccess(res, {
     message: `${result.updated.length} media item(s) updated`,
     data: result,
   });
@@ -69,8 +63,7 @@ const bulkUpdateMedia = catchAsync(async (req, res) => {
 // POST /media/bulk-delete   body: { ids: [1, 2] }
 const bulkDeleteMedia = catchAsync(async (req, res) => {
   const result = await mediaService.bulkDeleteMedia(req.body?.ids);
-  res.status(200).json({
-    success: true,
+  sendSuccess(res, {
     message: `${result.deleted.length} media item(s) deleted`,
     data: {
       deleted: result.deleted.map((media) => media.id),
@@ -83,34 +76,29 @@ const bulkDeleteMedia = catchAsync(async (req, res) => {
 // GET /media/tags
 const listTags = catchAsync(async (req, res) => {
   const tags = await mediaService.listTags();
-  res.status(200).json({ success: true, count: tags.length, data: tags });
+  sendSuccess(res, {
+    message: 'Tags retrieved successfully',
+    data: tags,
+    meta: { count: tags.length },
+  });
 });
 
 // POST /media/:id/tags   body: { tags: ["a", "b"] }
 const addTags = catchAsync(async (req, res) => {
   const media = await mediaService.addTags(req.params.id, req.body?.tags);
-  res.status(200).json({
-    success: true,
-    message: 'Tags added successfully',
-    data: media,
-  });
+  sendSuccess(res, { message: 'Tags added successfully', data: media });
 });
 
 // DELETE /media/:id/tags   body: { tags: ["a", "b"] }
 const removeTags = catchAsync(async (req, res) => {
   const media = await mediaService.removeTags(req.params.id, req.body?.tags);
-  res.status(200).json({
-    success: true,
-    message: 'Tags removed successfully',
-    data: media,
-  });
+  sendSuccess(res, { message: 'Tags removed successfully', data: media });
 });
 
 // PATCH /media/tags/rename   body: { from: "old", to: "new" }
 const renameTag = catchAsync(async (req, res) => {
   const result = await mediaService.renameTag(req.body?.from, req.body?.to);
-  res.status(200).json({
-    success: true,
+  sendSuccess(res, {
     message: `Tag renamed on ${result.changed} media item(s)`,
     data: result,
   });
@@ -119,8 +107,7 @@ const renameTag = catchAsync(async (req, res) => {
 // DELETE /media/tags/:tag
 const deleteTag = catchAsync(async (req, res) => {
   const result = await mediaService.deleteTag(req.params.tag);
-  res.status(200).json({
-    success: true,
+  sendSuccess(res, {
     message: `Tag removed from ${result.changed} media item(s)`,
     data: result,
   });

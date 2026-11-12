@@ -3,6 +3,7 @@ const express = require('express');
 
 const mediaRoutes = require('./routes/mediaRoutes');
 const { errorHandler, notFound } = require('./middlewares/errorHandler');
+const { sendSuccess } = require('./utils/apiResponse');
 
 const app = express();
 app.disable('x-powered-by');
@@ -12,18 +13,12 @@ app.use(express.json());
 
 // Test route
 app.get('/', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Welcome to Media Library Platform API',
-  });
+  sendSuccess(res, { message: 'Welcome to Media Library Platform API' });
 });
 
 // Health-check route
 app.get('/api/health', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Server is running successfully',
-  });
+  sendSuccess(res, { message: 'Server is running successfully' });
 });
 
 // Media API

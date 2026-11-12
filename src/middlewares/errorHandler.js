@@ -1,4 +1,5 @@
 const AppError = require('../utils/AppError');
+const { sendError } = require('../utils/apiResponse');
 
 // Centralised error handling. Every error that reaches Express (thrown in a
 // handler, passed to next(), rejected in a catchAsync controller, or raised
@@ -94,11 +95,12 @@ const errorHandler = (err, req, res, next) => {
     console.error(err);
   }
 
-  const body = { success: false, message };
-  if (errors?.length) body.errors = errors;
-  if (isDevelopment() && !expected && err?.stack) body.stack = err.stack;
-
-  return res.status(statusCode).json(body);
+  return sendError(res, {
+    statusCode,
+    message,
+    errors,
+    stack: isDevelopment() && !expected ? err?.stack : undefined,
+  });
 };
 
 module.exports = { errorHandler, notFound };
